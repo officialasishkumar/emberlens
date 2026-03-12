@@ -1,63 +1,93 @@
-# find-maintainers
+# repo-insights
 
-`find-maintainers` is a Go CLI that identifies likely project maintainers for any GitHub repository.
+`repo-insights` is a Go CLI for people analytics on GitHub repositories with **no database**.
 
-It combines:
-- **Historical contributions** (all-time commit contributions from `/contributors`)
-- **Team affiliation signals** (GitHub `MEMBER`, `OWNER`, `COLLABORATOR`, and public org membership)
-- **Public profile links** (blog, Twitter/X, and URLs in bio)
+It focuses on practical team intelligence from command line workflows:
 
-## Why this approach
+- `contributors`: all-time contributor leaderboard
+- `active-contributors`: contributors active in a configurable time window
+- `maintainers`: likely maintainers based on all-time contribution strength + team signals
 
-Maintainers are usually people who either:
-1. Have substantial long-term contribution volume, or
-2. Are explicitly part of the project/team (owner/member/collaborator)
-
-This tool flags both groups and ranks them by a score:
-
-```text
-score = commit_contributions + (25 * team_signal_count)
-```
-
-A person is considered a maintainer if they satisfy at least one:
-- Contributions above threshold (`max(min-contributions, top-percent of total repo contributions)`), or
-- At least one team-association signal.
+This is intentionally lightweight and inspired by the idea of repository analytics tools (e.g. Augur), but packaged as a single binary + GitHub API calls.
 
 ## Install
 
-```bash
-go build -o bin/find-maintainers ./cmd/find-maintainers
-```
-
-## Usage
+Prefer installing the command into your PATH:
 
 ```bash
-./bin/find-maintainers -repo golang/go
+go install ./cmd/repo-insights
 ```
 
-With JSON output:
+Then run directly:
 
 ```bash
-./bin/find-maintainers -repo golang/go -output json
+repo-insights help
 ```
 
-Using authenticated requests (recommended to avoid API limits):
+(Alternative local build: `go build -o repo-insights ./cmd/repo-insights`.)
+
+## Common flags
+
+All subcommands support:
+
+- `-repo owner/repo` (required)
+- `-token <token>` (defaults to `GITHUB_TOKEN`)
+- `-output table|json` (default: `table`)
+
+## Commands
+
+### 1) Contributors (all-time)
 
 ```bash
-GITHUB_TOKEN=... ./bin/find-maintainers -repo owner/repo
+repo-insights contributors -repo golang/go
 ```
 
-## Flags
+This uses the GitHub `/contributors` API and ranks by total contributions.
 
-- `-repo` (required): repository in `owner/repo` format
-- `-token`: GitHub token (defaults to `GITHUB_TOKEN` env var)
-- `-min-contributions` (default `25`): minimum all-time commit contributions
-- `-top-percent` (default `0.02`): contribution share threshold as decimal (2% by default)
-- `-signal-pages` (default `3`): number of pages (100 each) scanned from PRs/issues for team signals
-- `-output` (`table|json`): output format
+### 2) Active contributors (time window)
 
-## Notes and limitations
+```bash
+repo-insights active-contributors -repo golang/go -since 720h
+```
 
-- GitHub's public API only exposes **public org members**; private team membership requires permissions.
-- Contributor stats are derived from GitHub's contributor endpoint and may exclude some edge cases (e.g., unmapped emails).
-- For best accuracy, provide a token with enough permissions for higher rate limits.
+Flags:
+- `-since` duration (default `720h` = 30 days)
+- `-commit-pages` max pages of commits to scan (default `5`, 100 commits/page)
+
+This uses `/commits?since=...` and counts commit activity by GitHub author login.
+
+### 3) Maintainers
+
+```bash
+repo-insights maintainers -repo golang/go
+```
+
+Flags:
+- `-min-contributions` (default `25`)
+- `-top-percent` (default `0.02`)
+- `-signal-weight` (default `25`)
+- `-signal-pages` (default `3`)
+
+Maintainer logic marks someone as likely maintainer if either:
+- all-time contributions exceed threshold `max(min-contributions, top-percent * total repo contributions)`, or
+- they have team signals (`OWNER`, `MEMBER`, `COLLABORATOR`, public org member)
+
+Score for ranking:
+
+```text
+score = contributions + (signal-weight * team_signal_count)
+```
+
+## External links in output
+
+When available, each person includes:
+- GitHub profile URL
+- blog URL
+- Twitter/X URL
+- URLs found in GitHub bio
+
+## Notes
+
+- Public API only exposes **public** org members.
+- For private org/team insights and better rate limits, use a token.
+- If GitHub cannot map commit authors to a login (e.g., unmatched email), those commits are skipped in active contributor counts.

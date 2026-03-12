@@ -1,0 +1,55 @@
+package analysis
+
+import (
+	"testing"
+
+	"github.com/example/repo-insights/internal/githubapi"
+)
+
+func TestBuildMaintainers(t *testing.T) {
+	contributors := []githubapi.Contributor{
+		{User: githubapi.User{Login: "alice"}, Contributions: 100},
+		{User: githubapi.User{Login: "bob"}, Contributions: 10},
+	}
+	signals := map[string][]string{
+		"bob": {"Public org member"},
+	}
+	profiles := map[string]githubapi.Profile{
+		"alice": {Name: "Alice", HTMLURL: "https://github.com/alice", Blog: "alice.dev"},
+		"bob":   {Name: "Bob", HTMLURL: "https://github.com/bob"},
+	}
+
+	got, err := BuildMaintainers(contributors, signals, profiles, MaintainerConfig{MinContributions: 20, TopPercent: 0.05, SignalWeight: 25})
+	if err != nil {
+		t.Fatalf("BuildMaintainers() error = %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("BuildMaintainers() len = %d, want 2", len(got))
+	}
+	if got[0].Login != "alice" {
+		t.Fatalf("first login = %s, want alice", got[0].Login)
+	}
+}
+
+func TestBuildActiveContributors(t *testing.T) {
+	counts := map[string]int{"b": 2, "a": 5}
+	got := BuildActiveContributors(counts, map[string]githubapi.Profile{})
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2", len(got))
+	}
+	if got[0].Login != "a" {
+		t.Fatalf("first login = %s, want a", got[0].Login)
+	}
+}
+
+func TestExtractLinks(t *testing.T) {
+	p := githubapi.Profile{
+		Blog:            "example.com",
+		TwitterUsername: "dev",
+		Bio:             "docs https://docs.example.com",
+	}
+	links := extractLinks(p)
+	if len(links) != 3 {
+		t.Fatalf("len=%d links=%v", len(links), links)
+	}
+}

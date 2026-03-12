@@ -14,7 +14,7 @@ import (
 
 const baseURL = "https://api.github.com"
 
-// Client is a minimal GitHub API client for maintainer discovery.
+// Client is a minimal GitHub API client for repository people insights.
 type Client struct {
 	httpClient *http.Client
 	token      string
@@ -22,15 +22,15 @@ type Client struct {
 
 func NewClient(token string) *Client {
 	return &Client{
-		httpClient: &http.Client{Timeout: 20 * time.Second},
+		httpClient: &http.Client{Timeout: 25 * time.Second},
 		token:      token,
 	}
 }
 
-func (c *Client) doJSON(ctx context.Context, method, endpoint string, query map[string]string, out any) (http.Header, error) {
+func (c *Client) doJSON(ctx context.Context, method, endpoint string, query map[string]string, out any) error {
 	u, err := url.Parse(baseURL + endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("parse github url: %w", err)
+		return fmt.Errorf("parse GitHub URL: %w", err)
 	}
 
 	q := u.Query()
@@ -41,7 +41,7 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, query map[
 
 	req, err := http.NewRequestWithContext(ctx, method, u.String(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("create github request: %w", err)
+		return fmt.Errorf("create GitHub request: %w", err)
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
@@ -51,38 +51,39 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, query map[
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("send github request: %w", err)
+		return fmt.Errorf("send GitHub request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return nil, fmt.Errorf("github API %s %s failed: status=%d body=%q", method, endpoint, resp.StatusCode, strings.TrimSpace(string(body)))
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("GitHub API %s %s failed: status=%d body=%q", method, endpoint, resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	if out != nil {
 		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-			return nil, fmt.Errorf("decode github response: %w", err)
+			return fmt.Errorf("decode GitHub response: %w", err)
 		}
 	}
-	return resp.Header, nil
+
+	return nil
 }
 
-func collectPaged[T any](ctx context.Context, c *Client, endpoint string, baseQuery map[string]string) ([]T, error) {
-	query := make(map[string]string, len(baseQuery)+2)
-	for k, v := range baseQuery {
-		query[k] = v
+func collectPaged[T any](ctx context.Context, c *Client, endpoint string, query map[string]string, maxPages int) ([]T, error) {
+	q := make(map[string]string, len(query)+2)
+	for k, v := range query {
+		q[k] = v
 	}
-	if _, ok := query["per_page"]; !ok {
-		query["per_page"] = "100"
+	q["per_page"] = "100"
+	if maxPages <= 0 {
+		maxPages = 1000
 	}
 
 	var all []T
-	for page := 1; ; page++ {
-		query["page"] = strconv.Itoa(page)
+	for page := 1; page <= maxPages; page++ {
+		q["page"] = strconv.Itoa(page)
 		var batch []T
-		_, err := c.doJSON(ctx, http.MethodGet, endpoint, query, &batch)
-		if err != nil {
+		if err := c.doJSON(ctx, http.MethodGet, endpoint, q, &batch); err != nil {
 			return nil, err
 		}
 		all = append(all, batch...)
@@ -98,17 +99,15 @@ type Repo struct {
 		Login string `json:"login"`
 		Type  string `json:"type"`
 	} `json:"owner"`
-	Name          string `json:"name"`
-	FullName      string `json:"full_name"`
-	DefaultBranch string `json:"default_branch"`
-	HTMLURL       string `json:"html_url"`
+	Name     string `json:"name"`
+	FullName string `json:"full_name"`
+	HTMLURL  string `json:"html_url"`
 }
 
 type User struct {
-	Login     string `json:"login"`
-	HTMLURL   string `json:"html_url"`
-	Type      string `json:"type"`
-	SiteAdmin bool   `json:"site_admin"`
+	Login   string `json:"login"`
+	HTMLURL string `json:"html_url"`
+	Type    string `json:"type"`
 }
 
 type Contributor struct {
@@ -127,67 +126,55 @@ type Issue struct {
 	AuthorAssociation string `json:"author_association"`
 }
 
+type Commit struct {
+	Author *User `json:"author"`
+	Commit struct {
+		Author struct {
+			Name  string `json:"name"`
+			Email string `json:"email"`
+			Date  string `json:"date"`
+		} `json:"author"`
+	} `json:"commit"`
+}
+
 type Profile struct {
 	Login           string `json:"login"`
 	Name            string `json:"name"`
 	HTMLURL         string `json:"html_url"`
 	Blog            string `json:"blog"`
-	Company         string `json:"company"`
-	Email           string `json:"email"`
 	TwitterUsername string `json:"twitter_username"`
 	Bio             string `json:"bio"`
 }
 
 func (c *Client) GetRepo(ctx context.Context, owner, repo string) (Repo, error) {
 	var out Repo
-	_, err := c.doJSON(ctx, http.MethodGet, "/repos/"+owner+"/"+repo, nil, &out)
-	return out, err
+	return out, c.doJSON(ctx, http.MethodGet, "/repos/"+owner+"/"+repo, nil, &out)
 }
 
 func (c *Client) ListContributors(ctx context.Context, owner, repo string) ([]Contributor, error) {
-	return collectPaged[Contributor](ctx, c, "/repos/"+owner+"/"+repo+"/contributors", nil)
+	return collectPaged[Contributor](ctx, c, "/repos/"+owner+"/"+repo+"/contributors", nil, 0)
 }
 
 func (c *Client) ListPullRequests(ctx context.Context, owner, repo string, maxPages int) ([]PullRequest, error) {
-	return collectPagedLimited[PullRequest](ctx, c, "/repos/"+owner+"/"+repo+"/pulls", map[string]string{"state": "all", "sort": "updated", "direction": "desc"}, maxPages)
+	q := map[string]string{"state": "all", "sort": "updated", "direction": "desc"}
+	return collectPaged[PullRequest](ctx, c, "/repos/"+owner+"/"+repo+"/pulls", q, maxPages)
 }
 
 func (c *Client) ListIssues(ctx context.Context, owner, repo string, maxPages int) ([]Issue, error) {
-	return collectPagedLimited[Issue](ctx, c, "/repos/"+owner+"/"+repo+"/issues", map[string]string{"state": "all", "sort": "updated", "direction": "desc"}, maxPages)
-}
-
-func collectPagedLimited[T any](ctx context.Context, c *Client, endpoint string, baseQuery map[string]string, maxPages int) ([]T, error) {
-	query := make(map[string]string, len(baseQuery)+2)
-	for k, v := range baseQuery {
-		query[k] = v
-	}
-	query["per_page"] = "100"
-	if maxPages <= 0 {
-		maxPages = 1
-	}
-
-	var all []T
-	for page := 1; page <= maxPages; page++ {
-		query["page"] = strconv.Itoa(page)
-		var batch []T
-		_, err := c.doJSON(ctx, http.MethodGet, endpoint, query, &batch)
-		if err != nil {
-			return nil, err
-		}
-		all = append(all, batch...)
-		if len(batch) < 100 {
-			break
-		}
-	}
-	return all, nil
+	q := map[string]string{"state": "all", "sort": "updated", "direction": "desc"}
+	return collectPaged[Issue](ctx, c, "/repos/"+owner+"/"+repo+"/issues", q, maxPages)
 }
 
 func (c *Client) ListPublicOrgMembers(ctx context.Context, org string) ([]User, error) {
-	return collectPaged[User](ctx, c, "/orgs/"+org+"/public_members", nil)
+	return collectPaged[User](ctx, c, "/orgs/"+org+"/public_members", nil, 0)
+}
+
+func (c *Client) ListCommitsSince(ctx context.Context, owner, repo string, since time.Time, maxPages int) ([]Commit, error) {
+	q := map[string]string{"since": since.UTC().Format(time.RFC3339)}
+	return collectPaged[Commit](ctx, c, "/repos/"+owner+"/"+repo+"/commits", q, maxPages)
 }
 
 func (c *Client) GetProfile(ctx context.Context, login string) (Profile, error) {
 	var out Profile
-	_, err := c.doJSON(ctx, http.MethodGet, "/users/"+login, nil, &out)
-	return out, err
+	return out, c.doJSON(ctx, http.MethodGet, "/users/"+login, nil, &out)
 }
