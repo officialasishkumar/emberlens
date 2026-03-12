@@ -1,6 +1,6 @@
 # emberlens
 
-`emberlens` is a Go CLI for people analytics on GitHub repositories.
+`emberlens` is a Go CLI for people analytics on GitHub and GitLab repositories.
 
 It focuses on practical team intelligence from command line workflows:
 
@@ -8,9 +8,25 @@ It focuses on practical team intelligence from command line workflows:
 - `active-contributors`: contributors active in a configurable time window
 - `maintainers`: likely maintainers based on all-time contribution strength + team signals
 
-This is intentionally lightweight and inspired by the idea of repository analytics tools (e.g. Augur), but packaged as a single binary + GitHub API calls.
+This is intentionally lightweight and inspired by the idea of repository analytics tools (e.g. Augur), but packaged as a single binary + GitHub/GitLab API calls.
 
-## GitHub Token
+## Platform Support
+
+emberlens supports both **GitHub** and **GitLab** as backend platforms:
+
+| Feature | GitHub | GitLab |
+|---------|--------|--------|
+| Contributors | ✅ | ✅ |
+| Active contributors | ✅ | ✅ |
+| Maintainers + team signals | ✅ | ✅ |
+| Profiles | ✅ | ✅ |
+| Self-hosted instances | ❌ (github.com only) | ✅ (`-gitlab-url`) |
+
+Use the `-platform` flag to select the backend (default: `github`).
+
+## API Tokens
+
+### GitHub Token
 
 A GitHub personal access token is optional but recommended for higher rate limits and access to private repository data.
 
@@ -32,6 +48,35 @@ Or pass it directly:
 
 ```bash
 emberlens contributors -repo golang/go -token ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+### GitLab Token
+
+A GitLab personal access token is optional but recommended for higher rate limits and access to private project data.
+
+To create one:
+
+1. Go to your GitLab instance → **Settings** → **Access Tokens** (e.g. [gitlab.com/-/user_settings/personal_access_tokens](https://gitlab.com/-/user_settings/personal_access_tokens)).
+2. Give it a descriptive name (e.g. `emberlens`).
+3. Select scopes: `read_api` (sufficient for read-only access).
+4. Click **Create personal access token** and copy the value.
+
+Set it as an environment variable:
+
+```bash
+export GITLAB_TOKEN=glpat-xxxxxxxxxxxxxxxxxxxx
+```
+
+Or pass it directly:
+
+```bash
+emberlens contributors -repo mygroup/myproject -platform gitlab -token glpat-xxxxxxxxxxxxxxxxxxxx
+```
+
+For self-hosted GitLab instances, set the `-gitlab-url` flag:
+
+```bash
+emberlens contributors -repo mygroup/myproject -platform gitlab -gitlab-url https://gitlab.example.com
 ```
 
 ## Install
@@ -57,7 +102,9 @@ All subcommands support:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-repo owner/repo` | *(required)* | Target repository |
-| `-token <token>` | `GITHUB_TOKEN` env | GitHub personal access token |
+| `-platform github\|gitlab` | `github` | Platform to use |
+| `-token <token>` | `GITHUB_TOKEN` or `GITLAB_TOKEN` env | API personal access token |
+| `-gitlab-url <url>` | `https://gitlab.com` | GitLab instance URL (only used with `-platform gitlab`) |
 | `-output table\|json` | `table` | Output format |
 | `-verbose` | off | Show all fields in detailed card layout |
 | `-limit N` | `20` | Show only top N results (0 = all) |
@@ -167,9 +214,38 @@ When available, each person includes:
 
 ## Notes
 
-- Public API only exposes **public** org members.
-- For private org/team insights and better rate limits, use a token.
-- If GitHub cannot map commit authors to a login (e.g., unmatched email), those commits are skipped in active contributor counts.
+- GitHub: Public API only exposes **public** org members.
+- GitHub: For private org/team insights and better rate limits, use a token.
+- GitHub: If GitHub cannot map commit authors to a login (e.g., unmatched email), those commits are skipped in active contributor counts.
+- GitLab: Contributor logins are resolved from project members when possible; unmatched contributors use their git author name.
+- GitLab: Team signals are derived from project member access levels (Owner, Maintainer, Developer).
+- GitLab: Self-hosted instances are supported via `-gitlab-url`.
+
+## GitLab Examples
+
+### Contributors (all-time)
+
+```bash
+emberlens contributors -repo gnome/gnome-shell -platform gitlab
+```
+
+### Active contributors (time window)
+
+```bash
+emberlens active-contributors -repo gnome/gnome-shell -platform gitlab -since 720h
+```
+
+### Maintainers
+
+```bash
+emberlens maintainers -repo gnome/gnome-shell -platform gitlab
+```
+
+### Self-hosted GitLab
+
+```bash
+emberlens contributors -repo mygroup/myrepo -platform gitlab -gitlab-url https://gitlab.example.com
+```
 
 ## Reports
 
