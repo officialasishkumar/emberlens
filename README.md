@@ -10,30 +10,6 @@ It focuses on practical team intelligence from command line workflows:
 
 This is intentionally lightweight and inspired by the idea of repository analytics tools (e.g. Augur), but packaged as a single binary + GitHub API calls.
 
-## Install
-
-Prefer installing the command into your PATH:
-
-```bash
-go install ./cmd/emberlens
-```
-
-Then run directly:
-
-```bash
-emberlens help
-```
-
-(Alternative local build: `go build -o emberlens ./cmd/emberlens`.)
-
-## Common flags
-
-All subcommands support:
-
-- `-repo owner/repo` (required)
-- `-token <token>` (defaults to `GITHUB_TOKEN`)
-- `-output table|json` (default: `table`)
-
 ## GitHub Token
 
 A GitHub personal access token is optional but recommended for higher rate limits and access to private repository data.
@@ -57,6 +33,30 @@ Or pass it directly:
 ```bash
 emberlens contributors -repo golang/go -token ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
+
+## Install
+
+Prefer installing the command into your PATH:
+
+```bash
+go install ./cmd/emberlens
+```
+
+Then run directly:
+
+```bash
+emberlens help
+```
+
+(Alternative local build: `go build -o emberlens ./cmd/emberlens`.)
+
+## Common flags
+
+All subcommands support:
+
+- `-repo owner/repo` (required)
+- `-token <token>` (defaults to `GITHUB_TOKEN`)
+- `-output table|json` (default: `table`)
 
 ## Commands
 
