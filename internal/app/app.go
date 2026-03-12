@@ -13,6 +13,8 @@ import (
 	"github.com/officialasishkumar/emberlens/internal/analysis"
 	"github.com/officialasishkumar/emberlens/internal/display"
 	"github.com/officialasishkumar/emberlens/internal/githubapi"
+	"github.com/officialasishkumar/emberlens/internal/gitlabapi"
+	"github.com/officialasishkumar/emberlens/internal/platform"
 	"github.com/officialasishkumar/emberlens/internal/report"
 )
 
@@ -32,12 +34,13 @@ type Subcommand interface {
 
 // RunContext is the shared execution context passed to every command.
 type RunContext struct {
-	Ctx          context.Context
-	Client       *githubapi.Client
-	Owner        string
-	Repo         string
-	SkipProfiles bool
-	Now          time.Time
+	Ctx            context.Context
+	Client         platform.Client
+	Owner          string
+	Repo           string
+	SkipProfiles   bool
+	Now            time.Time
+	ProfileBaseURL string
 }
 
 // ---------------------------------------------------------------------------
@@ -74,7 +77,7 @@ func (r *Runner) Register(cmd Subcommand) {
 
 func (r *Runner) helpText() string {
 	var b strings.Builder
-	b.WriteString("emberlens — GitHub repository people analytics from the CLI.\n\n")
+	b.WriteString("emberlens — repository people analytics from the CLI.\n\n")
 	b.WriteString("Usage:\n  emberlens <command> [flags]\n\n")
 	b.WriteString("Commands:\n")
 	for _, name := range r.order {
@@ -83,7 +86,9 @@ func (r *Runner) helpText() string {
 	b.WriteString(`
 Global flags:
   -repo owner/repo         repository (required)
-  -token <token>           GitHub token (or set GITHUB_TOKEN env var)
+  -platform github|gitlab  platform (default: github)
+  -token <token>           API token (or set GITHUB_TOKEN / GITLAB_TOKEN env var)
+  -gitlab-url <url>        GitLab instance URL (default: https://gitlab.com)
   -output table|json       output format (default: table)
   -verbose                 show all fields in detailed card layout
   -limit N                 show only top N results (default: 20, 0 = all)
@@ -99,7 +104,7 @@ Use "emberlens <command> -h" for command-specific flags.
 }
 
 // Run parses arguments and executes the appropriate subcommand.
-func (r *Runner) Run(args []string, envToken string) int {
+func (r *Runner) Run(args []string, envGitHubToken, envGitLabToken string) int {
 	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
 		fmt.Fprint(r.Stdout, r.helpText())
 		return 0
@@ -114,11 +119,12 @@ func (r *Runner) Run(args []string, envToken string) int {
 	// Parse common + command-specific flags
 	fs := flag.NewFlagSet(cmd.Name(), flag.ContinueOnError)
 	fs.SetOutput(r.Stderr)
-	common := registerCommon(fs, envToken)
+	common := registerCommon(fs, envGitHubToken, envGitLabToken)
 	cmd.RegisterFlags(fs)
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
+	common.postParse()
 
 	owner, repo, err := parseRepo(common.repo)
 	if err != nil {
@@ -131,13 +137,25 @@ func (r *Runner) Run(args []string, envToken string) int {
 	ctx, cancel := context.WithTimeout(context.Background(), common.timeout)
 	defer cancel()
 
+	// Create platform client
+	var client platform.Client
+	switch strings.ToLower(common.platformName) {
+	case "github":
+		client = githubapi.NewClient(common.token)
+	case "gitlab":
+		client = gitlabapi.NewClient(common.token, common.gitlabURL)
+	default:
+		return r.fail(fmt.Errorf("unsupported -platform=%q (expected github|gitlab)", common.platformName))
+	}
+
 	rc := &RunContext{
-		Ctx:          ctx,
-		Client:       githubapi.NewClient(common.token),
-		Owner:        owner,
-		Repo:         repo,
-		SkipProfiles: !common.profiles,
-		Now:          r.now(),
+		Ctx:            ctx,
+		Client:         client,
+		Owner:          owner,
+		Repo:           repo,
+		SkipProfiles:   !common.profiles,
+		Now:            r.now(),
+		ProfileBaseURL: client.ProfileBaseURL(),
 	}
 
 	// Execute
@@ -191,22 +209,28 @@ func (r *Runner) Run(args []string, envToken string) int {
 // ---------------------------------------------------------------------------
 
 type commonFlags struct {
-	repo      string
-	token     string
-	output    string
-	verbose   bool
-	limit     int
-	profiles  bool
-	noColor   bool
-	timeout   time.Duration
-	noReport  bool
-	reportDir string
+	repo            string
+	platformName    string
+	token           string
+	gitlabURL       string
+	output          string
+	verbose         bool
+	limit           int
+	profiles        bool
+	noColor         bool
+	timeout         time.Duration
+	noReport        bool
+	reportDir       string
+	envGitHubToken  string
+	envGitLabToken  string
 }
 
-func registerCommon(fs *flag.FlagSet, envToken string) *commonFlags {
+func registerCommon(fs *flag.FlagSet, envGitHubToken, envGitLabToken string) *commonFlags {
 	f := &commonFlags{}
 	fs.StringVar(&f.repo, "repo", "", "repository in owner/repo format (required)")
-	fs.StringVar(&f.token, "token", envToken, "GitHub token (defaults to GITHUB_TOKEN)")
+	fs.StringVar(&f.platformName, "platform", "github", "platform: github|gitlab")
+	fs.StringVar(&f.token, "token", "", "API token (defaults to GITHUB_TOKEN or GITLAB_TOKEN)")
+	fs.StringVar(&f.gitlabURL, "gitlab-url", "", "GitLab instance URL (default: https://gitlab.com)")
 	fs.StringVar(&f.output, "output", "table", "output format: table|json")
 	fs.BoolVar(&f.verbose, "verbose", false, "show all fields in detailed card layout")
 	fs.IntVar(&f.limit, "limit", 20, "show only top N results (0 = all)")
@@ -215,7 +239,35 @@ func registerCommon(fs *flag.FlagSet, envToken string) *commonFlags {
 	fs.DurationVar(&f.timeout, "timeout", 2*time.Minute, "API timeout duration")
 	fs.BoolVar(&f.noReport, "no-report", false, "skip saving run report to disk")
 	fs.StringVar(&f.reportDir, "report-dir", "emberlens-reports", "report directory")
+
+	// After flag parsing, resolve token from env if not provided.
+	// We use a post-parse hook via a wrapper — but since flag.FlagSet
+	// doesn't support post-parse hooks, we'll resolve after Parse in Run.
+	// Store env tokens for resolution.
+	f.resolveToken(envGitHubToken, envGitLabToken)
 	return f
+}
+
+// resolveToken sets the token from environment variables if not explicitly provided.
+// This is called after registration; the actual -token flag value (if any) is
+// resolved during fs.Parse and takes precedence since it overwrites f.token.
+func (f *commonFlags) resolveToken(envGitHubToken, envGitLabToken string) {
+	// Default tokens are set here but -token flag will overwrite if provided.
+	// We store these as defaults.
+	f.envGitHubToken = envGitHubToken
+	f.envGitLabToken = envGitLabToken
+}
+
+// postParse resolves the token after flag parsing, using env vars as fallback.
+func (f *commonFlags) postParse() {
+	if f.token == "" {
+		switch strings.ToLower(f.platformName) {
+		case "gitlab":
+			f.token = f.envGitLabToken
+		default:
+			f.token = f.envGitHubToken
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------

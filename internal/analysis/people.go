@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/officialasishkumar/emberlens/internal/githubapi"
+	"github.com/officialasishkumar/emberlens/internal/platform"
 )
 
 var urlRegex = regexp.MustCompile(`https?://[^\s)]+`)
@@ -28,31 +28,31 @@ type MaintainerConfig struct {
 	SignalWeight     int
 }
 
-func BuildContributors(contributors []githubapi.Contributor, profiles map[string]githubapi.Profile) []Person {
+func BuildContributors(contributors []platform.Contributor, profiles map[string]platform.Profile, profileBaseURL string) []Person {
 	people := make([]Person, 0, len(contributors))
 	for _, c := range contributors {
 		if strings.TrimSpace(c.Login) == "" {
 			continue
 		}
-		people = append(people, personFrom(c.Login, c.Contributions, nil, profiles[c.Login]))
+		people = append(people, personFrom(c.Login, c.Contributions, c.HTMLURL, nil, profiles[c.Login], profileBaseURL))
 	}
 	sortPeople(people)
 	return people
 }
 
-func BuildActiveContributors(commitCounts map[string]int, profiles map[string]githubapi.Profile) []Person {
+func BuildActiveContributors(commitCounts map[string]int, profiles map[string]platform.Profile, profileBaseURL string) []Person {
 	people := make([]Person, 0, len(commitCounts))
 	for login, count := range commitCounts {
 		if strings.TrimSpace(login) == "" {
 			continue
 		}
-		people = append(people, personFrom(login, count, nil, profiles[login]))
+		people = append(people, personFrom(login, count, "", nil, profiles[login], profileBaseURL))
 	}
 	sortPeople(people)
 	return people
 }
 
-func BuildMaintainers(contributors []githubapi.Contributor, teamSignals map[string][]string, profiles map[string]githubapi.Profile, cfg MaintainerConfig) ([]Person, error) {
+func BuildMaintainers(contributors []platform.Contributor, teamSignals map[string][]string, profiles map[string]platform.Profile, cfg MaintainerConfig, profileBaseURL string) ([]Person, error) {
 	if cfg.MinContributions < 0 {
 		return nil, fmt.Errorf("min contributions must be non-negative")
 	}
@@ -103,7 +103,7 @@ func BuildMaintainers(contributors []githubapi.Contributor, teamSignals map[stri
 			continue
 		}
 
-		p := personFrom(login, contrib, signals, profiles[login])
+		p := personFrom(login, contrib, "", signals, profiles[login], profileBaseURL)
 		p.Score = contrib + len(signals)*cfg.SignalWeight
 		p.Reasons = reasons
 		result = append(result, p)
@@ -119,11 +119,18 @@ func BuildMaintainers(contributors []githubapi.Contributor, teamSignals map[stri
 	return result, nil
 }
 
-func personFrom(login string, contributions int, signals []string, profile githubapi.Profile) Person {
+func personFrom(login string, contributions int, contributorURL string, signals []string, profile platform.Profile, profileBaseURL string) Person {
+	profileURL := strings.TrimSpace(profile.HTMLURL)
+	if profileURL == "" && contributorURL != "" {
+		profileURL = contributorURL
+	}
+	if profileURL == "" {
+		profileURL = profileBaseURL + "/" + login
+	}
 	return Person{
 		Login:         login,
 		Name:          strings.TrimSpace(profile.Name),
-		ProfileURL:    nonEmptyOr(strings.TrimSpace(profile.HTMLURL), "https://github.com/"+login),
+		ProfileURL:    profileURL,
 		Contributions: contributions,
 		Signals:       signals,
 		ExternalLinks: extractLinks(profile),
@@ -158,7 +165,7 @@ func sortPeople(people []Person) {
 	})
 }
 
-func extractLinks(p githubapi.Profile) []string {
+func extractLinks(p platform.Profile) []string {
 	seen := map[string]struct{}{}
 	add := func(v string) {
 		v = strings.TrimSpace(v)
@@ -187,9 +194,4 @@ func extractLinks(p githubapi.Profile) []string {
 	return out
 }
 
-func nonEmptyOr(v, fallback string) string {
-	if v == "" {
-		return fallback
-	}
-	return v
-}
+
