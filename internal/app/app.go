@@ -8,63 +8,199 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"github.com/officialasishkumar/emberlens/internal/analysis"
+	"github.com/officialasishkumar/emberlens/internal/display"
 	"github.com/officialasishkumar/emberlens/internal/githubapi"
+	"github.com/officialasishkumar/emberlens/internal/report"
 )
 
-const helpText = `emberlens: GitHub repository people analytics from CLI.
+// ---------------------------------------------------------------------------
+// Subcommand interface — implement this to add a new emberlens command.
+// ---------------------------------------------------------------------------
 
-Usage:
-  emberlens <command> [flags]
+// Subcommand is the extension point for emberlens commands.
+// Each command owns its own flags and execution logic.
+// The Runner handles flag parsing, output rendering, and report saving.
+type Subcommand interface {
+	Name() string
+	Description() string
+	RegisterFlags(fs *flag.FlagSet)
+	Execute(rc *RunContext) ([]analysis.Person, error)
+}
 
-Commands:
-  contributors         List all-time contributors ranked by contributions
-  active-contributors  List contributors active within a period (via commit activity)
-  maintainers          Identify likely maintainers using contribution + team signals
+// RunContext is the shared execution context passed to every command.
+type RunContext struct {
+	Ctx          context.Context
+	Client       *githubapi.Client
+	Owner        string
+	Repo         string
+	SkipProfiles bool
+	Now          time.Time
+}
 
-Global conventions:
-  -repo owner/repo         required on every command
-  -token <token>           optional (or set GITHUB_TOKEN)
-  -output table|json       default table
+// ---------------------------------------------------------------------------
+// Runner
+// ---------------------------------------------------------------------------
+
+// Runner is the top-level CLI application.
+type Runner struct {
+	Stdout   io.Writer
+	Stderr   io.Writer
+	Now      func() time.Time
+	commands map[string]Subcommand
+	order    []string
+}
+
+// NewRunner creates a Runner with all built-in commands registered.
+func NewRunner(stdout, stderr io.Writer) *Runner {
+	r := &Runner{
+		Stdout:   stdout,
+		Stderr:   stderr,
+		commands: map[string]Subcommand{},
+	}
+	r.Register(&contributorsCmd{})
+	r.Register(&activeContributorsCmd{})
+	r.Register(&maintainersCmd{})
+	return r
+}
+
+// Register adds a command. Use this to extend emberlens with custom commands.
+func (r *Runner) Register(cmd Subcommand) {
+	r.commands[cmd.Name()] = cmd
+	r.order = append(r.order, cmd.Name())
+}
+
+func (r *Runner) helpText() string {
+	var b strings.Builder
+	b.WriteString("emberlens — GitHub repository people analytics from the CLI.\n\n")
+	b.WriteString("Usage:\n  emberlens <command> [flags]\n\n")
+	b.WriteString("Commands:\n")
+	for _, name := range r.order {
+		fmt.Fprintf(&b, "  %-24s %s\n", name, r.commands[name].Description())
+	}
+	b.WriteString(`
+Global flags:
+  -repo owner/repo         repository (required)
+  -token <token>           GitHub token (or set GITHUB_TOKEN env var)
+  -output table|json       output format (default: table)
+  -verbose                 show all fields in detailed card layout
+  -limit N                 show only top N results (default: 0 = all)
+  -skip-profiles           skip fetching user profiles (saves API calls)
+  -no-color                disable colored output
+  -timeout <duration>      API timeout (default: 2m)
+  -no-report               skip saving run report to disk
+  -report-dir <dir>        report directory (default: emberlens-reports)
 
 Use "emberlens <command> -h" for command-specific flags.
-`
-
-type Runner struct {
-	Stdout io.Writer
-	Stderr io.Writer
-	Now    func() time.Time
+`)
+	return b.String()
 }
 
-func (r Runner) Run(args []string, envToken string) int {
-	if len(args) == 0 {
-		fmt.Fprint(r.Stdout, helpText)
+// Run parses arguments and executes the appropriate subcommand.
+func (r *Runner) Run(args []string, envToken string) int {
+	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
+		fmt.Fprint(r.Stdout, r.helpText())
 		return 0
 	}
 
-	switch args[0] {
-	case "contributors":
-		return r.runContributors(args[1:], envToken)
-	case "active-contributors":
-		return r.runActiveContributors(args[1:], envToken)
-	case "maintainers":
-		return r.runMaintainers(args[1:], envToken)
-	case "help", "-h", "--help":
-		fmt.Fprint(r.Stdout, helpText)
-		return 0
-	default:
-		fmt.Fprintf(r.Stderr, "error: unknown command %q\n\n%s", args[0], helpText)
+	cmd, ok := r.commands[args[0]]
+	if !ok {
+		fmt.Fprintf(r.Stderr, "error: unknown command %q\n\n%s", args[0], r.helpText())
 		return 2
 	}
+
+	// Parse common + command-specific flags
+	fs := flag.NewFlagSet(cmd.Name(), flag.ContinueOnError)
+	fs.SetOutput(r.Stderr)
+	common := registerCommon(fs, envToken)
+	cmd.RegisterFlags(fs)
+	if err := fs.Parse(args[1:]); err != nil {
+		return 2
+	}
+
+	owner, repo, err := parseRepo(common.repo)
+	if err != nil {
+		return r.fail(err)
+	}
+
+	// Setup
+	dp := &display.Printer{W: r.Stdout, Color: !common.noColor}
+	start := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), common.timeout)
+	defer cancel()
+
+	rc := &RunContext{
+		Ctx:          ctx,
+		Client:       githubapi.NewClient(common.token),
+		Owner:        owner,
+		Repo:         repo,
+		SkipProfiles: common.skipProfiles,
+		Now:          r.now(),
+	}
+
+	// Execute
+	people, err := cmd.Execute(rc)
+	if err != nil {
+		return r.fail(err)
+	}
+
+	total := len(people)
+	if common.limit > 0 && common.limit < len(people) {
+		people = people[:common.limit]
+	}
+	elapsed := time.Since(start)
+
+	// Render output
+	if err := r.render(dp, people, common); err != nil {
+		return r.fail(err)
+	}
+
+	// Save report
+	var reportPath string
+	if !common.noReport {
+		cmdStr := reconstructCommand(cmd.Name(), fs)
+		path, saveErr := report.Save(common.reportDir, cmd.Name(), common.repo, cmdStr, people, elapsed)
+		if saveErr != nil {
+			fmt.Fprintf(r.Stderr, "warning: failed to save report: %v\n", saveErr)
+		} else {
+			reportPath = path
+		}
+	}
+
+	// Footer summary (table output only)
+	if common.output == "table" {
+		var lines []string
+		if common.limit > 0 && common.limit < total {
+			lines = append(lines, fmt.Sprintf("Showing %d of %d results · %s", len(people), total, elapsed.Round(time.Millisecond)))
+		} else {
+			lines = append(lines, fmt.Sprintf("%d results · %s", total, elapsed.Round(time.Millisecond)))
+		}
+		if reportPath != "" {
+			lines = append(lines, "Report: "+reportPath)
+		}
+		dp.Footer(lines...)
+	}
+
+	return 0
 }
 
+// ---------------------------------------------------------------------------
+// Common flags
+// ---------------------------------------------------------------------------
+
 type commonFlags struct {
-	repo   string
-	token  string
-	output string
+	repo         string
+	token        string
+	output       string
+	verbose      bool
+	limit        int
+	skipProfiles bool
+	noColor      bool
+	timeout      time.Duration
+	noReport     bool
+	reportDir    string
 }
 
 func registerCommon(fs *flag.FlagSet, envToken string) *commonFlags {
@@ -72,154 +208,78 @@ func registerCommon(fs *flag.FlagSet, envToken string) *commonFlags {
 	fs.StringVar(&f.repo, "repo", "", "repository in owner/repo format (required)")
 	fs.StringVar(&f.token, "token", envToken, "GitHub token (defaults to GITHUB_TOKEN)")
 	fs.StringVar(&f.output, "output", "table", "output format: table|json")
+	fs.BoolVar(&f.verbose, "verbose", false, "show all fields in detailed card layout")
+	fs.IntVar(&f.limit, "limit", 0, "show only top N results (0 = all)")
+	fs.BoolVar(&f.skipProfiles, "skip-profiles", false, "skip fetching user profiles (saves API calls)")
+	fs.BoolVar(&f.noColor, "no-color", false, "disable colored output")
+	fs.DurationVar(&f.timeout, "timeout", 2*time.Minute, "API timeout duration")
+	fs.BoolVar(&f.noReport, "no-report", false, "skip saving run report to disk")
+	fs.StringVar(&f.reportDir, "report-dir", "emberlens-reports", "report directory")
 	return f
 }
 
-func (r Runner) runContributors(args []string, envToken string) int {
-	fs := flag.NewFlagSet("contributors", flag.ContinueOnError)
-	fs.SetOutput(r.Stderr)
-	common := registerCommon(fs, envToken)
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
+// ---------------------------------------------------------------------------
+// Output rendering
+// ---------------------------------------------------------------------------
 
-	owner, repo, err := parseRepo(common.repo)
-	if err != nil {
-		return r.fail(err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	client := githubapi.NewClient(common.token)
-
-	contributors, err := client.ListContributors(ctx, owner, repo)
-	if err != nil {
-		return r.fail(err)
-	}
-	profiles := fetchProfiles(ctx, client, contributorLogins(contributors))
-
-	people := analysis.BuildContributors(contributors, profiles)
-	return r.print(people, common.output)
-}
-
-func (r Runner) runActiveContributors(args []string, envToken string) int {
-	fs := flag.NewFlagSet("active-contributors", flag.ContinueOnError)
-	fs.SetOutput(r.Stderr)
-	common := registerCommon(fs, envToken)
-	since := fs.Duration("since", 30*24*time.Hour, "time window for active contributions (example: 720h, 168h)")
-	commitPages := fs.Int("commit-pages", 5, "max commit pages (100/page) to fetch for activity")
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-
-	owner, repo, err := parseRepo(common.repo)
-	if err != nil {
-		return r.fail(err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	client := githubapi.NewClient(common.token)
-
-	sinceTs := r.now().Add(-*since)
-	commits, err := client.ListCommitsSince(ctx, owner, repo, sinceTs, *commitPages)
-	if err != nil {
-		return r.fail(err)
-	}
-
-	counts := map[string]int{}
-	for _, c := range commits {
-		if c.Author == nil || strings.TrimSpace(c.Author.Login) == "" {
-			continue
-		}
-		counts[c.Author.Login]++
-	}
-
-	profiles := fetchProfiles(ctx, client, mapKeys(counts))
-	people := analysis.BuildActiveContributors(counts, profiles)
-	return r.print(people, common.output)
-}
-
-func (r Runner) runMaintainers(args []string, envToken string) int {
-	fs := flag.NewFlagSet("maintainers", flag.ContinueOnError)
-	fs.SetOutput(r.Stderr)
-	common := registerCommon(fs, envToken)
-	minContrib := fs.Int("min-contributions", 25, "minimum all-time contributions")
-	topPercent := fs.Float64("top-percent", 0.02, "share of total all-time contributions threshold (0-1)")
-	signalWeight := fs.Int("signal-weight", 25, "weight added per team signal")
-	signalPages := fs.Int("signal-pages", 3, "PR/issue pages to inspect for team signals")
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-
-	owner, repo, err := parseRepo(common.repo)
-	if err != nil {
-		return r.fail(err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	client := githubapi.NewClient(common.token)
-
-	repoMeta, err := client.GetRepo(ctx, owner, repo)
-	if err != nil {
-		return r.fail(err)
-	}
-
-	contributors, err := client.ListContributors(ctx, owner, repo)
-	if err != nil {
-		return r.fail(err)
-	}
-	teamSignals := collectTeamSignals(ctx, client, owner, repo, repoMeta.Owner.Type, *signalPages)
-	profiles := fetchProfiles(ctx, client, mergeLogins(contributorLogins(contributors), mapKeys(teamSignals)))
-
-	people, err := analysis.BuildMaintainers(contributors, teamSignals, profiles, analysis.MaintainerConfig{
-		MinContributions: *minContrib,
-		TopPercent:       *topPercent,
-		SignalWeight:     *signalWeight,
-	})
-	if err != nil {
-		return r.fail(err)
-	}
-	return r.print(people, common.output)
-}
-
-func (r Runner) print(people []analysis.Person, output string) int {
-	switch output {
+func (r *Runner) render(dp *display.Printer, people []analysis.Person, common *commonFlags) error {
+	switch common.output {
 	case "table":
-		tw := tabwriter.NewWriter(r.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(tw, "LOGIN\tNAME\tCONTRIBUTIONS\tPROFILE\tLINKS\tSIGNALS\tREASONS")
-		for _, p := range people {
-			fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%s\t%s\t%s\n",
-				p.Login,
-				emptyDash(p.Name),
-				p.Contributions,
-				p.ProfileURL,
-				emptyDash(strings.Join(p.ExternalLinks, ", ")),
-				emptyDash(strings.Join(p.Signals, "; ")),
-				emptyDash(strings.Join(p.Reasons, " | ")),
-			)
+		dp.Banner("emberlens", common.repo)
+		if common.verbose {
+			r.printCards(dp, people)
+		} else {
+			r.printTable(dp, people)
 		}
-		_ = tw.Flush()
-		return 0
+		return nil
 	case "json":
 		enc := json.NewEncoder(r.Stdout)
 		enc.SetIndent("", "  ")
-		if err := enc.Encode(people); err != nil {
-			return r.fail(err)
-		}
-		return 0
+		return enc.Encode(people)
 	default:
-		return r.fail(fmt.Errorf("unsupported -output=%q (expected table|json)", output))
+		return fmt.Errorf("unsupported -output=%q (expected table|json)", common.output)
 	}
 }
 
-func (r Runner) fail(err error) int {
+func (r *Runner) printTable(dp *display.Printer, people []analysis.Person) {
+	headers := []string{"#", "LOGIN", "NAME", "CONTRIBUTIONS", "PROFILE"}
+	rows := make([][]string, len(people))
+	for i, p := range people {
+		rows[i] = []string{
+			fmt.Sprintf("%d", i+1),
+			p.Login,
+			emptyDash(p.Name),
+			fmt.Sprintf("%d", p.Contributions),
+			p.ProfileURL,
+		}
+	}
+	dp.Table(headers, rows)
+}
+
+func (r *Runner) printCards(dp *display.Printer, people []analysis.Person) {
+	for i, p := range people {
+		dp.Card(i+1, []display.CardField{
+			{Label: "Login", Value: p.Login},
+			{Label: "Name", Value: emptyDash(p.Name)},
+			{Label: "Contributions", Value: fmt.Sprintf("%d", p.Contributions)},
+			{Label: "Profile", Value: p.ProfileURL},
+			{Label: "Links", Value: emptyDash(strings.Join(p.ExternalLinks, ", "))},
+			{Label: "Signals", Value: emptyDash(strings.Join(p.Signals, "; "))},
+			{Label: "Reasons", Value: emptyDash(strings.Join(p.Reasons, " | "))},
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
+
+func (r *Runner) fail(err error) int {
 	fmt.Fprintf(r.Stderr, "error: %v\n", err)
 	return 1
 }
 
-func (r Runner) now() time.Time {
+func (r *Runner) now() time.Time {
 	if r.Now != nil {
 		return r.Now()
 	}
@@ -234,115 +294,15 @@ func parseRepo(v string) (string, string, error) {
 	return parts[0], parts[1], nil
 }
 
-func collectTeamSignals(ctx context.Context, client *githubapi.Client, owner, repo, ownerType string, maxPages int) map[string][]string {
-	collected := map[string]map[string]struct{}{}
-	add := func(login, reason string) {
-		if strings.TrimSpace(login) == "" {
+func reconstructCommand(name string, fs *flag.FlagSet) string {
+	parts := []string{"emberlens", name}
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "token" {
 			return
 		}
-		if _, ok := collected[login]; !ok {
-			collected[login] = map[string]struct{}{}
-		}
-		collected[login][reason] = struct{}{}
-	}
-
-	prs, err := client.ListPullRequests(ctx, owner, repo, maxPages)
-	if err == nil {
-		for _, pr := range prs {
-			if isTeamAssociation(pr.AuthorAssociation) {
-				add(pr.User.Login, "PR author association="+pr.AuthorAssociation)
-			}
-		}
-	}
-
-	issues, err := client.ListIssues(ctx, owner, repo, maxPages)
-	if err == nil {
-		for _, issue := range issues {
-			if issue.PullRequest != nil {
-				continue
-			}
-			if isTeamAssociation(issue.AuthorAssociation) {
-				add(issue.User.Login, "Issue author association="+issue.AuthorAssociation)
-			}
-		}
-	}
-
-	if ownerType == "Organization" {
-		members, err := client.ListPublicOrgMembers(ctx, owner)
-		if err == nil {
-			for _, m := range members {
-				add(m.Login, "Public organization member")
-			}
-		}
-	}
-
-	out := make(map[string][]string, len(collected))
-	for login, reasons := range collected {
-		out[login] = mapKeys(reasons)
-	}
-	return out
-}
-
-func isTeamAssociation(v string) bool {
-	switch strings.ToUpper(v) {
-	case "OWNER", "MEMBER", "COLLABORATOR":
-		return true
-	default:
-		return false
-	}
-}
-
-func fetchProfiles(ctx context.Context, client *githubapi.Client, logins []string) map[string]githubapi.Profile {
-	out := map[string]githubapi.Profile{}
-	for _, login := range dedupe(logins) {
-		p, err := client.GetProfile(ctx, login)
-		if err == nil {
-			out[login] = p
-		}
-	}
-	return out
-}
-
-func contributorLogins(in []githubapi.Contributor) []string {
-	logins := make([]string, 0, len(in))
-	for _, c := range in {
-		if c.Login != "" {
-			logins = append(logins, c.Login)
-		}
-	}
-	return logins
-}
-
-func mergeLogins(a, b []string) []string {
-	out := make([]string, 0, len(a)+len(b))
-	out = append(out, a...)
-	out = append(out, b...)
-	return out
-}
-
-func dedupe(in []string) []string {
-	seen := map[string]struct{}{}
-	out := make([]string, 0, len(in))
-	for _, v := range in {
-		v = strings.TrimSpace(v)
-		if v == "" {
-			continue
-		}
-		if _, ok := seen[v]; ok {
-			continue
-		}
-		seen[v] = struct{}{}
-		out = append(out, v)
-	}
-	return out
-}
-
-func mapKeys[V any](m map[string]V) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	return out
+		parts = append(parts, fmt.Sprintf("-%s=%s", f.Name, f.Value.String()))
+	})
+	return strings.Join(parts, " ")
 }
 
 func emptyDash(v string) string {

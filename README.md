@@ -54,9 +54,53 @@ emberlens help
 
 All subcommands support:
 
-- `-repo owner/repo` (required)
-- `-token <token>` (defaults to `GITHUB_TOKEN`)
-- `-output table|json` (default: `table`)
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-repo owner/repo` | *(required)* | Target repository |
+| `-token <token>` | `GITHUB_TOKEN` env | GitHub personal access token |
+| `-output table\|json` | `table` | Output format |
+| `-verbose` | off | Show all fields in detailed card layout |
+| `-limit N` | `0` (all) | Show only top N results |
+| `-skip-profiles` | off | Skip fetching user profiles (saves API calls) |
+| `-no-color` | off | Disable ANSI colored output |
+| `-timeout <duration>` | `2m` | API timeout |
+| `-no-report` | off | Skip saving run report to disk |
+| `-report-dir <dir>` | `emberlens-reports` | Directory for run reports |
+
+### Saving API calls
+
+GitHub's public API allows **60 requests/hour** unauthenticated and **5,000/hour** with a token. emberlens provides several flags to reduce API usage:
+
+- **`-skip-profiles`** — Biggest saver. Skips fetching `/users/<login>` for every person. A repo with 300 contributors would normally make 300+ extra calls just for names/bios.
+- **`-limit N`** — Only display top N results. Combined with `-skip-profiles`, this is very fast.
+- **`-max-pages N`** — Cap how many pages of contributor/commit data to fetch.
+- **`-skip-signals`** *(maintainers only)* — Skip PR/issue scanning for team signals.
+
+Fastest possible run:
+
+```bash
+emberlens maintainers -repo keploy/keploy -skip-profiles -skip-signals -limit 20 -max-pages 3
+```
+
+### Display modes
+
+**Default (compact table)** — shows `#`, `LOGIN`, `NAME`, `CONTRIBUTIONS`, `PROFILE`:
+
+```bash
+emberlens contributors -repo golang/go -limit 5
+```
+
+**Verbose (card layout)** — one card per person with all fields, ideal for small screens:
+
+```bash
+emberlens maintainers -repo keploy/keploy -verbose -limit 10
+```
+
+**JSON** — pipe to `jq` for custom filtering:
+
+```bash
+emberlens contributors -repo golang/go -output json | jq '.[0:5]'
+```
 
 ## Commands
 
@@ -67,6 +111,9 @@ emberlens contributors -repo golang/go
 ```
 
 This uses the GitHub `/contributors` API and ranks by total contributions.
+
+Flags:
+- `-max-pages` max contributor pages to fetch (default `10`, 100 per page)
 
 ### 2) Active contributors (time window)
 
@@ -87,10 +134,12 @@ emberlens maintainers -repo golang/go
 ```
 
 Flags:
-- `-min-contributions` (default `25`)
-- `-top-percent` (default `0.02`)
-- `-signal-weight` (default `25`)
-- `-signal-pages` (default `3`)
+- `-min-contributions` minimum all-time contributions (default `25`)
+- `-top-percent` top contribution share threshold (default `0.02`)
+- `-signal-weight` score weight per team signal (default `25`)
+- `-signal-pages` PR/issue pages for signal detection (default `3`)
+- `-skip-signals` skip team signal detection entirely (saves API calls)
+- `-max-pages` max contributor pages to fetch (default `0` = all)
 
 Maintainer logic marks someone as likely maintainer if either:
 - all-time contributions exceed threshold `max(min-contributions, top-percent * total repo contributions)`, or
@@ -115,3 +164,82 @@ When available, each person includes:
 - Public API only exposes **public** org members.
 - For private org/team insights and better rate limits, use a token.
 - If GitHub cannot map commit authors to a login (e.g., unmatched email), those commits are skipped in active contributor counts.
+
+## Reports
+
+Every run automatically saves a YAML report to disk under `emberlens-reports/`. This helps with GitHub API rate limits — you can review previous results without re-fetching.
+
+Reports are organized by subcommand with incrementing run numbers:
+
+```
+emberlens-reports/
+  maintainers/
+    run-0/
+      report.yaml
+    run-1/
+      report.yaml
+  contributors/
+    run-0/
+      report.yaml
+  active-contributors/
+    run-0/
+      report.yaml
+```
+
+Each `report.yaml` contains:
+
+```yaml
+version: v1
+name: maintainers-run-0
+command: "emberlens maintainers -repo keploy/keploy"
+repo: keploy/keploy
+subcommand: maintainers
+status: success
+total: 42
+created_at: "2026-03-12T10:30:00Z"
+time_taken: "12.5s"
+people:
+  - login: user1
+    name: User One
+    # ... full person data
+```
+
+To skip report generation:
+
+```bash
+emberlens maintainers -repo keploy/keploy -no-report
+```
+
+To customize the report directory:
+
+```bash
+emberlens maintainers -repo keploy/keploy -report-dir ./my-reports
+```
+
+## Extending emberlens
+
+emberlens uses a `Subcommand` interface for all commands. To add a new command:
+
+1. Create a struct implementing the `Subcommand` interface in `internal/app/`:
+
+```go
+type myCmd struct {
+    // command-specific flag fields
+}
+
+func (c *myCmd) Name() string                 { return "my-command" }
+func (c *myCmd) Description() string           { return "Does something useful" }
+func (c *myCmd) RegisterFlags(fs *flag.FlagSet) { /* add flags */ }
+func (c *myCmd) Execute(rc *RunContext) ([]analysis.Person, error) {
+    // use rc.Client, rc.Owner, rc.Repo, rc.Ctx
+    // return []analysis.Person, nil
+}
+```
+
+2. Register it in `NewRunner()` in `app.go`:
+
+```go
+r.Register(&myCmd{})
+```
+
+The runner handles flag parsing, output rendering (table/cards/JSON), report saving, and the summary footer automatically. Your command only needs to fetch data and return `[]Person`.

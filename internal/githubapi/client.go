@@ -151,8 +151,8 @@ func (c *Client) GetRepo(ctx context.Context, owner, repo string) (Repo, error) 
 	return out, c.doJSON(ctx, http.MethodGet, "/repos/"+owner+"/"+repo, nil, &out)
 }
 
-func (c *Client) ListContributors(ctx context.Context, owner, repo string) ([]Contributor, error) {
-	return collectPaged[Contributor](ctx, c, "/repos/"+owner+"/"+repo+"/contributors", nil, 0)
+func (c *Client) ListContributors(ctx context.Context, owner, repo string, maxPages int) ([]Contributor, error) {
+	return collectPaged[Contributor](ctx, c, "/repos/"+owner+"/"+repo+"/contributors", nil, maxPages)
 }
 
 func (c *Client) ListPullRequests(ctx context.Context, owner, repo string, maxPages int) ([]PullRequest, error) {

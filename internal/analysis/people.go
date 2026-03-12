@@ -12,14 +12,14 @@ import (
 var urlRegex = regexp.MustCompile(`https?://[^\s)]+`)
 
 type Person struct {
-	Login         string   `json:"login"`
-	Name          string   `json:"name,omitempty"`
-	ProfileURL    string   `json:"profile_url"`
-	Contributions int      `json:"contributions"`
-	Signals       []string `json:"signals,omitempty"`
-	ExternalLinks []string `json:"external_links,omitempty"`
-	Score         int      `json:"score,omitempty"`
-	Reasons       []string `json:"reasons,omitempty"`
+	Login         string   `json:"login" yaml:"login"`
+	Name          string   `json:"name,omitempty" yaml:"name,omitempty"`
+	ProfileURL    string   `json:"profile_url" yaml:"profile_url"`
+	Contributions int      `json:"contributions" yaml:"contributions"`
+	Signals       []string `json:"signals,omitempty" yaml:"signals,omitempty"`
+	ExternalLinks []string `json:"external_links,omitempty" yaml:"external_links,omitempty"`
+	Score         int      `json:"score,omitempty" yaml:"score,omitempty"`
+	Reasons       []string `json:"reasons,omitempty" yaml:"reasons,omitempty"`
 }
 
 type MaintainerConfig struct {
