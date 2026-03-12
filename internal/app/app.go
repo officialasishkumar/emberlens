@@ -86,8 +86,8 @@ Global flags:
   -token <token>           GitHub token (or set GITHUB_TOKEN env var)
   -output table|json       output format (default: table)
   -verbose                 show all fields in detailed card layout
-  -limit N                 show only top N results (default: 0 = all)
-  -skip-profiles           skip fetching user profiles (saves API calls)
+  -limit N                 show only top N results (default: 20, 0 = all)
+  -profiles                fetch full user profiles (extra API calls)
   -no-color                disable colored output
   -timeout <duration>      API timeout (default: 2m)
   -no-report               skip saving run report to disk
@@ -136,7 +136,7 @@ func (r *Runner) Run(args []string, envToken string) int {
 		Client:       githubapi.NewClient(common.token),
 		Owner:        owner,
 		Repo:         repo,
-		SkipProfiles: common.skipProfiles,
+		SkipProfiles: !common.profiles,
 		Now:          r.now(),
 	}
 
@@ -191,16 +191,16 @@ func (r *Runner) Run(args []string, envToken string) int {
 // ---------------------------------------------------------------------------
 
 type commonFlags struct {
-	repo         string
-	token        string
-	output       string
-	verbose      bool
-	limit        int
-	skipProfiles bool
-	noColor      bool
-	timeout      time.Duration
-	noReport     bool
-	reportDir    string
+	repo      string
+	token     string
+	output    string
+	verbose   bool
+	limit     int
+	profiles  bool
+	noColor   bool
+	timeout   time.Duration
+	noReport  bool
+	reportDir string
 }
 
 func registerCommon(fs *flag.FlagSet, envToken string) *commonFlags {
@@ -209,8 +209,8 @@ func registerCommon(fs *flag.FlagSet, envToken string) *commonFlags {
 	fs.StringVar(&f.token, "token", envToken, "GitHub token (defaults to GITHUB_TOKEN)")
 	fs.StringVar(&f.output, "output", "table", "output format: table|json")
 	fs.BoolVar(&f.verbose, "verbose", false, "show all fields in detailed card layout")
-	fs.IntVar(&f.limit, "limit", 0, "show only top N results (0 = all)")
-	fs.BoolVar(&f.skipProfiles, "skip-profiles", false, "skip fetching user profiles (saves API calls)")
+	fs.IntVar(&f.limit, "limit", 20, "show only top N results (0 = all)")
+	fs.BoolVar(&f.profiles, "profiles", false, "fetch full user profiles (extra API calls)")
 	fs.BoolVar(&f.noColor, "no-color", false, "disable colored output")
 	fs.DurationVar(&f.timeout, "timeout", 2*time.Minute, "API timeout duration")
 	fs.BoolVar(&f.noReport, "no-report", false, "skip saving run report to disk")

@@ -24,7 +24,7 @@ func (c *contributorsCmd) Description() string {
 }
 
 func (c *contributorsCmd) RegisterFlags(fs *flag.FlagSet) {
-	fs.IntVar(&c.maxPages, "max-pages", 10, "max contributor pages to fetch (100 per page)")
+	fs.IntVar(&c.maxPages, "max-pages", 3, "max contributor pages to fetch (100 per page)")
 }
 
 func (c *contributorsCmd) Execute(rc *RunContext) ([]analysis.Person, error) {
@@ -92,7 +92,7 @@ type maintainersCmd struct {
 	topPercent   float64
 	signalWeight int
 	signalPages  int
-	skipSignals  bool
+	signals      bool
 	maxPages     int
 }
 
@@ -106,8 +106,8 @@ func (c *maintainersCmd) RegisterFlags(fs *flag.FlagSet) {
 	fs.Float64Var(&c.topPercent, "top-percent", 0.02, "top contribution share threshold (0-1)")
 	fs.IntVar(&c.signalWeight, "signal-weight", 25, "score weight per team signal")
 	fs.IntVar(&c.signalPages, "signal-pages", 3, "PR/issue pages for signal detection")
-	fs.BoolVar(&c.skipSignals, "skip-signals", false, "skip team signal detection (saves API calls)")
-	fs.IntVar(&c.maxPages, "max-pages", 0, "max contributor pages to fetch (0 = all)")
+	fs.BoolVar(&c.signals, "signals", false, "enable team signal detection (extra API calls)")
+	fs.IntVar(&c.maxPages, "max-pages", 3, "max contributor pages to fetch (0 = all)")
 }
 
 func (c *maintainersCmd) Execute(rc *RunContext) ([]analysis.Person, error) {
@@ -122,7 +122,7 @@ func (c *maintainersCmd) Execute(rc *RunContext) ([]analysis.Person, error) {
 	}
 
 	var teamSignals map[string][]string
-	if !c.skipSignals {
+	if c.signals {
 		teamSignals = collectTeamSignals(rc.Ctx, rc.Client, rc.Owner, rc.Repo, repoMeta.Owner.Type, c.signalPages)
 	}
 

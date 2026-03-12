@@ -60,8 +60,8 @@ All subcommands support:
 | `-token <token>` | `GITHUB_TOKEN` env | GitHub personal access token |
 | `-output table\|json` | `table` | Output format |
 | `-verbose` | off | Show all fields in detailed card layout |
-| `-limit N` | `0` (all) | Show only top N results |
-| `-skip-profiles` | off | Skip fetching user profiles (saves API calls) |
+| `-limit N` | `20` | Show only top N results (0 = all) |
+| `-profiles` | off | Fetch full user profiles (extra API calls) |
 | `-no-color` | off | Disable ANSI colored output |
 | `-timeout <duration>` | `2m` | API timeout |
 | `-no-report` | off | Skip saving run report to disk |
@@ -69,17 +69,23 @@ All subcommands support:
 
 ### Saving API calls
 
-GitHub's public API allows **60 requests/hour** unauthenticated and **5,000/hour** with a token. emberlens provides several flags to reduce API usage:
+GitHub's public API allows **60 requests/hour** unauthenticated and **5,000/hour** with a token. emberlens is fast by default — profiles and signals are off, results are capped at 20, and only 3 pages of contributor data are fetched. Opt‑in to more data when needed:
 
-- **`-skip-profiles`** — Biggest saver. Skips fetching `/users/<login>` for every person. A repo with 300 contributors would normally make 300+ extra calls just for names/bios.
-- **`-limit N`** — Only display top N results. Combined with `-skip-profiles`, this is very fast.
-- **`-max-pages N`** — Cap how many pages of contributor/commit data to fetch.
-- **`-skip-signals`** *(maintainers only)* — Skip PR/issue scanning for team signals.
+- **`-profiles`** — Fetch `/users/<login>` for every person (names, bios, links). A repo with 300 contributors adds 300+ extra calls.
+- **`-signals`** *(maintainers only)* — Enable PR/issue scanning for team signals (adds more pages of API calls).
+- **`-limit 0`** — Show all results instead of the default top 20.
+- **`-max-pages N`** — Increase pages of contributor/commit data beyond the default 3.
 
-Fastest possible run:
+The default run is already lean — just pass `-repo`:
 
 ```bash
-emberlens maintainers -repo keploy/keploy -skip-profiles -skip-signals -limit 20 -max-pages 3
+emberlens maintainers -repo keploy/keploy
+```
+
+For full detail:
+
+```bash
+emberlens maintainers -repo keploy/keploy -profiles -signals -limit 0 -max-pages 0
 ```
 
 ### Display modes
@@ -113,7 +119,7 @@ emberlens contributors -repo golang/go
 This uses the GitHub `/contributors` API and ranks by total contributions.
 
 Flags:
-- `-max-pages` max contributor pages to fetch (default `10`, 100 per page)
+- `-max-pages` max contributor pages to fetch (default `3`, 100 per page)
 
 ### 2) Active contributors (time window)
 
@@ -138,8 +144,8 @@ Flags:
 - `-top-percent` top contribution share threshold (default `0.02`)
 - `-signal-weight` score weight per team signal (default `25`)
 - `-signal-pages` PR/issue pages for signal detection (default `3`)
-- `-skip-signals` skip team signal detection entirely (saves API calls)
-- `-max-pages` max contributor pages to fetch (default `0` = all)
+- `-signals` enable team signal detection (extra API calls, off by default)
+- `-max-pages` max contributor pages to fetch (default `3`, 0 = all)
 
 Maintainer logic marks someone as likely maintainer if either:
 - all-time contributions exceed threshold `max(min-contributions, top-percent * total repo contributions)`, or
