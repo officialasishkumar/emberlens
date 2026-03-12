@@ -10,11 +10,14 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/officialasishkumar/emberlens/internal/platform"
 )
 
 const baseURL = "https://api.github.com"
+const profileBase = "https://github.com"
 
-// Client is a minimal GitHub API client for repository people insights.
+// Client is a GitHub API client implementing platform.Client.
 type Client struct {
 	httpClient *http.Client
 	token      string
@@ -26,6 +29,9 @@ func NewClient(token string) *Client {
 		token:      token,
 	}
 }
+
+// ProfileBaseURL returns the GitHub web URL for user profiles.
+func (c *Client) ProfileBaseURL() string { return profileBase }
 
 func (c *Client) doJSON(ctx context.Context, method, endpoint string, query map[string]string, out any) error {
 	u, err := url.Parse(baseURL + endpoint)
@@ -94,87 +100,35 @@ func collectPaged[T any](ctx context.Context, c *Client, endpoint string, query 
 	return all, nil
 }
 
-type Repo struct {
-	Owner struct {
-		Login string `json:"login"`
-		Type  string `json:"type"`
-	} `json:"owner"`
-	Name     string `json:"name"`
-	FullName string `json:"full_name"`
-	HTMLURL  string `json:"html_url"`
-}
-
-type User struct {
-	Login   string `json:"login"`
-	HTMLURL string `json:"html_url"`
-	Type    string `json:"type"`
-}
-
-type Contributor struct {
-	User
-	Contributions int `json:"contributions"`
-}
-
-type PullRequest struct {
-	User              User   `json:"user"`
-	AuthorAssociation string `json:"author_association"`
-}
-
-type Issue struct {
-	User              User   `json:"user"`
-	PullRequest       any    `json:"pull_request"`
-	AuthorAssociation string `json:"author_association"`
-}
-
-type Commit struct {
-	Author *User `json:"author"`
-	Commit struct {
-		Author struct {
-			Name  string `json:"name"`
-			Email string `json:"email"`
-			Date  string `json:"date"`
-		} `json:"author"`
-	} `json:"commit"`
-}
-
-type Profile struct {
-	Login           string `json:"login"`
-	Name            string `json:"name"`
-	HTMLURL         string `json:"html_url"`
-	Blog            string `json:"blog"`
-	TwitterUsername string `json:"twitter_username"`
-	Bio             string `json:"bio"`
-}
-
-func (c *Client) GetRepo(ctx context.Context, owner, repo string) (Repo, error) {
-	var out Repo
+func (c *Client) GetRepo(ctx context.Context, owner, repo string) (platform.Repo, error) {
+	var out platform.Repo
 	return out, c.doJSON(ctx, http.MethodGet, "/repos/"+owner+"/"+repo, nil, &out)
 }
 
-func (c *Client) ListContributors(ctx context.Context, owner, repo string, maxPages int) ([]Contributor, error) {
-	return collectPaged[Contributor](ctx, c, "/repos/"+owner+"/"+repo+"/contributors", nil, maxPages)
+func (c *Client) ListContributors(ctx context.Context, owner, repo string, maxPages int) ([]platform.Contributor, error) {
+	return collectPaged[platform.Contributor](ctx, c, "/repos/"+owner+"/"+repo+"/contributors", nil, maxPages)
 }
 
-func (c *Client) ListPullRequests(ctx context.Context, owner, repo string, maxPages int) ([]PullRequest, error) {
+func (c *Client) ListPullRequests(ctx context.Context, owner, repo string, maxPages int) ([]platform.PullRequest, error) {
 	q := map[string]string{"state": "all", "sort": "updated", "direction": "desc"}
-	return collectPaged[PullRequest](ctx, c, "/repos/"+owner+"/"+repo+"/pulls", q, maxPages)
+	return collectPaged[platform.PullRequest](ctx, c, "/repos/"+owner+"/"+repo+"/pulls", q, maxPages)
 }
 
-func (c *Client) ListIssues(ctx context.Context, owner, repo string, maxPages int) ([]Issue, error) {
+func (c *Client) ListIssues(ctx context.Context, owner, repo string, maxPages int) ([]platform.Issue, error) {
 	q := map[string]string{"state": "all", "sort": "updated", "direction": "desc"}
-	return collectPaged[Issue](ctx, c, "/repos/"+owner+"/"+repo+"/issues", q, maxPages)
+	return collectPaged[platform.Issue](ctx, c, "/repos/"+owner+"/"+repo+"/issues", q, maxPages)
 }
 
-func (c *Client) ListPublicOrgMembers(ctx context.Context, org string) ([]User, error) {
-	return collectPaged[User](ctx, c, "/orgs/"+org+"/public_members", nil, 0)
+func (c *Client) ListOrgMembers(ctx context.Context, org string) ([]platform.User, error) {
+	return collectPaged[platform.User](ctx, c, "/orgs/"+org+"/public_members", nil, 0)
 }
 
-func (c *Client) ListCommitsSince(ctx context.Context, owner, repo string, since time.Time, maxPages int) ([]Commit, error) {
+func (c *Client) ListCommitsSince(ctx context.Context, owner, repo string, since time.Time, maxPages int) ([]platform.Commit, error) {
 	q := map[string]string{"since": since.UTC().Format(time.RFC3339)}
-	return collectPaged[Commit](ctx, c, "/repos/"+owner+"/"+repo+"/commits", q, maxPages)
+	return collectPaged[platform.Commit](ctx, c, "/repos/"+owner+"/"+repo+"/commits", q, maxPages)
 }
 
-func (c *Client) GetProfile(ctx context.Context, login string) (Profile, error) {
-	var out Profile
+func (c *Client) GetProfile(ctx context.Context, login string) (platform.Profile, error) {
+	var out platform.Profile
 	return out, c.doJSON(ctx, http.MethodGet, "/users/"+login, nil, &out)
 }

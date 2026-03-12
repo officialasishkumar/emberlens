@@ -3,23 +3,23 @@ package analysis
 import (
 	"testing"
 
-	"github.com/officialasishkumar/emberlens/internal/githubapi"
+	"github.com/officialasishkumar/emberlens/internal/platform"
 )
 
 func TestBuildMaintainers(t *testing.T) {
-	contributors := []githubapi.Contributor{
-		{User: githubapi.User{Login: "alice"}, Contributions: 100},
-		{User: githubapi.User{Login: "bob"}, Contributions: 10},
+	contributors := []platform.Contributor{
+		{User: platform.User{Login: "alice"}, Contributions: 100},
+		{User: platform.User{Login: "bob"}, Contributions: 10},
 	}
 	signals := map[string][]string{
 		"bob": {"Public org member"},
 	}
-	profiles := map[string]githubapi.Profile{
+	profiles := map[string]platform.Profile{
 		"alice": {Name: "Alice", HTMLURL: "https://github.com/alice", Blog: "alice.dev"},
 		"bob":   {Name: "Bob", HTMLURL: "https://github.com/bob"},
 	}
 
-	got, err := BuildMaintainers(contributors, signals, profiles, MaintainerConfig{MinContributions: 20, TopPercent: 0.05, SignalWeight: 25})
+	got, err := BuildMaintainers(contributors, signals, profiles, MaintainerConfig{MinContributions: 20, TopPercent: 0.05, SignalWeight: 25}, "https://github.com")
 	if err != nil {
 		t.Fatalf("BuildMaintainers() error = %v", err)
 	}
@@ -33,7 +33,7 @@ func TestBuildMaintainers(t *testing.T) {
 
 func TestBuildActiveContributors(t *testing.T) {
 	counts := map[string]int{"b": 2, "a": 5}
-	got := BuildActiveContributors(counts, map[string]githubapi.Profile{})
+	got := BuildActiveContributors(counts, map[string]platform.Profile{}, "https://github.com")
 	if len(got) != 2 {
 		t.Fatalf("len = %d, want 2", len(got))
 	}
@@ -43,7 +43,7 @@ func TestBuildActiveContributors(t *testing.T) {
 }
 
 func TestExtractLinks(t *testing.T) {
-	p := githubapi.Profile{
+	p := platform.Profile{
 		Blog:            "example.com",
 		TwitterUsername: "dev",
 		Bio:             "docs https://docs.example.com",

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/officialasishkumar/emberlens/internal/analysis"
-	"github.com/officialasishkumar/emberlens/internal/githubapi"
+	"github.com/officialasishkumar/emberlens/internal/platform"
 )
 
 // =============================================================================
@@ -33,12 +33,12 @@ func (c *contributorsCmd) Execute(rc *RunContext) ([]analysis.Person, error) {
 		return nil, err
 	}
 
-	var profiles map[string]githubapi.Profile
+	var profiles map[string]platform.Profile
 	if !rc.SkipProfiles {
 		profiles = fetchProfiles(rc.Ctx, rc.Client, contributorLogins(contributors))
 	}
 
-	return analysis.BuildContributors(contributors, profiles), nil
+	return analysis.BuildContributors(contributors, profiles, rc.ProfileBaseURL), nil
 }
 
 // =============================================================================
@@ -75,12 +75,12 @@ func (c *activeContributorsCmd) Execute(rc *RunContext) ([]analysis.Person, erro
 		counts[cm.Author.Login]++
 	}
 
-	var profiles map[string]githubapi.Profile
+	var profiles map[string]platform.Profile
 	if !rc.SkipProfiles {
 		profiles = fetchProfiles(rc.Ctx, rc.Client, mapKeys(counts))
 	}
 
-	return analysis.BuildActiveContributors(counts, profiles), nil
+	return analysis.BuildActiveContributors(counts, profiles, rc.ProfileBaseURL), nil
 }
 
 // =============================================================================
@@ -131,7 +131,7 @@ func (c *maintainersCmd) Execute(rc *RunContext) ([]analysis.Person, error) {
 		logins = mergeLogins(logins, mapKeys(teamSignals))
 	}
 
-	var profiles map[string]githubapi.Profile
+	var profiles map[string]platform.Profile
 	if !rc.SkipProfiles {
 		profiles = fetchProfiles(rc.Ctx, rc.Client, logins)
 	}
@@ -140,14 +140,14 @@ func (c *maintainersCmd) Execute(rc *RunContext) ([]analysis.Person, error) {
 		MinContributions: c.minContrib,
 		TopPercent:       c.topPercent,
 		SignalWeight:     c.signalWeight,
-	})
+	}, rc.ProfileBaseURL)
 }
 
 // =============================================================================
 // Shared helpers for GitHub API interactions
 // =============================================================================
 
-func collectTeamSignals(ctx context.Context, client *githubapi.Client, owner, repo, ownerType string, maxPages int) map[string][]string {
+func collectTeamSignals(ctx context.Context, client platform.Client, owner, repo, ownerType string, maxPages int) map[string][]string {
 	collected := map[string]map[string]struct{}{}
 	add := func(login, reason string) {
 		if strings.TrimSpace(login) == "" {
@@ -181,7 +181,7 @@ func collectTeamSignals(ctx context.Context, client *githubapi.Client, owner, re
 	}
 
 	if ownerType == "Organization" {
-		members, err := client.ListPublicOrgMembers(ctx, owner)
+		members, err := client.ListOrgMembers(ctx, owner)
 		if err == nil {
 			for _, m := range members {
 				add(m.Login, "Public organization member")
@@ -205,8 +205,8 @@ func isTeamAssociation(v string) bool {
 	}
 }
 
-func fetchProfiles(ctx context.Context, client *githubapi.Client, logins []string) map[string]githubapi.Profile {
-	out := map[string]githubapi.Profile{}
+func fetchProfiles(ctx context.Context, client platform.Client, logins []string) map[string]platform.Profile {
+	out := map[string]platform.Profile{}
 	for _, login := range dedupe(logins) {
 		p, err := client.GetProfile(ctx, login)
 		if err == nil {
@@ -216,7 +216,7 @@ func fetchProfiles(ctx context.Context, client *githubapi.Client, logins []strin
 	return out
 }
 
-func contributorLogins(in []githubapi.Contributor) []string {
+func contributorLogins(in []platform.Contributor) []string {
 	logins := make([]string, 0, len(in))
 	for _, c := range in {
 		if c.Login != "" {
