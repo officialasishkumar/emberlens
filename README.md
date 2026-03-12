@@ -34,6 +34,30 @@ All subcommands support:
 - `-token <token>` (defaults to `GITHUB_TOKEN`)
 - `-output table|json` (default: `table`)
 
+## GitHub Token
+
+A GitHub personal access token is optional but recommended for higher rate limits and access to private repository data.
+
+To create one:
+
+1. Go to [github.com/settings/tokens](https://github.com/settings/tokens).
+2. Click **Generate new token** → **Generate new token (classic)**.
+3. Give it a descriptive name (e.g. `emberlens`).
+4. Select scopes: `repo` (for private repos) or leave all scopes unchecked (for public repos only).
+5. Click **Generate token** and copy the value.
+
+Set it as an environment variable:
+
+```bash
+export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+Or pass it directly:
+
+```bash
+emberlens contributors -repo golang/go -token ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
 ## Commands
 
 ### 1) Contributors (all-time)
