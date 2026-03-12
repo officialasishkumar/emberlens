@@ -15,7 +15,7 @@ import (
 	"github.com/example/emberlens/internal/githubapi"
 )
 
-const helpText = `emberlens: GitHub repository people analytics from CLI (no DB).
+const helpText = `emberlens: GitHub repository people analytics from CLI.
 
 Usage:
   emberlens <command> [flags]

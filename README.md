@@ -1,6 +1,6 @@
 # emberlens
 
-`emberlens` is a Go CLI for people analytics on GitHub repositories with **no database**.
+`emberlens` is a Go CLI for people analytics on GitHub repositories.
 
 It focuses on practical team intelligence from command line workflows:
 
