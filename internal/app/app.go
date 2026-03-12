@@ -11,8 +11,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/example/emberlens/internal/analysis"
-	"github.com/example/emberlens/internal/githubapi"
+	"github.com/officialasishkumar/emberlens/internal/analysis"
+	"github.com/officialasishkumar/emberlens/internal/githubapi"
 )
 
 const helpText = `emberlens: GitHub repository people analytics from CLI.

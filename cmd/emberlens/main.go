@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/example/emberlens/internal/app"
+	"github.com/officialasishkumar/emberlens/internal/app"
 )
 
 func main() {
