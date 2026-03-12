@@ -240,22 +240,10 @@ func registerCommon(fs *flag.FlagSet, envGitHubToken, envGitLabToken string) *co
 	fs.BoolVar(&f.noReport, "no-report", false, "skip saving run report to disk")
 	fs.StringVar(&f.reportDir, "report-dir", "emberlens-reports", "report directory")
 
-	// After flag parsing, resolve token from env if not provided.
-	// We use a post-parse hook via a wrapper — but since flag.FlagSet
-	// doesn't support post-parse hooks, we'll resolve after Parse in Run.
-	// Store env tokens for resolution.
-	f.resolveToken(envGitHubToken, envGitLabToken)
-	return f
-}
-
-// resolveToken sets the token from environment variables if not explicitly provided.
-// This is called after registration; the actual -token flag value (if any) is
-// resolved during fs.Parse and takes precedence since it overwrites f.token.
-func (f *commonFlags) resolveToken(envGitHubToken, envGitLabToken string) {
-	// Default tokens are set here but -token flag will overwrite if provided.
-	// We store these as defaults.
+	// Store env tokens for post-parse resolution.
 	f.envGitHubToken = envGitHubToken
 	f.envGitLabToken = envGitLabToken
+	return f
 }
 
 // postParse resolves the token after flag parsing, using env vars as fallback.
