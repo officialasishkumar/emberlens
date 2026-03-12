@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/example/repo-insights/internal/app"
+	"github.com/example/emberlens/internal/app"
 )
 
 func main() {

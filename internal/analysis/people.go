@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/example/repo-insights/internal/githubapi"
+	"github.com/example/emberlens/internal/githubapi"
 )
 
 var urlRegex = regexp.MustCompile(`https?://[^\s)]+`)

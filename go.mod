@@ -1,3 +1,3 @@
-module github.com/example/repo-insights
+module github.com/example/emberlens
 
 go 1.22

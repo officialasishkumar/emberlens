@@ -3,7 +3,7 @@ package analysis
 import (
 	"testing"
 
-	"github.com/example/repo-insights/internal/githubapi"
+	"github.com/example/emberlens/internal/githubapi"
 )
 
 func TestBuildMaintainers(t *testing.T) {

@@ -1,6 +1,6 @@
-# repo-insights
+# emberlens
 
-`repo-insights` is a Go CLI for people analytics on GitHub repositories with **no database**.
+`emberlens` is a Go CLI for people analytics on GitHub repositories with **no database**.
 
 It focuses on practical team intelligence from command line workflows:
 
@@ -15,16 +15,16 @@ This is intentionally lightweight and inspired by the idea of repository analyti
 Prefer installing the command into your PATH:
 
 ```bash
-go install ./cmd/repo-insights
+go install ./cmd/emberlens
 ```
 
 Then run directly:
 
 ```bash
-repo-insights help
+emberlens help
 ```
 
-(Alternative local build: `go build -o repo-insights ./cmd/repo-insights`.)
+(Alternative local build: `go build -o emberlens ./cmd/emberlens`.)
 
 ## Common flags
 
@@ -39,7 +39,7 @@ All subcommands support:
 ### 1) Contributors (all-time)
 
 ```bash
-repo-insights contributors -repo golang/go
+emberlens contributors -repo golang/go
 ```
 
 This uses the GitHub `/contributors` API and ranks by total contributions.
@@ -47,7 +47,7 @@ This uses the GitHub `/contributors` API and ranks by total contributions.
 ### 2) Active contributors (time window)
 
 ```bash
-repo-insights active-contributors -repo golang/go -since 720h
+emberlens active-contributors -repo golang/go -since 720h
 ```
 
 Flags:
@@ -59,7 +59,7 @@ This uses `/commits?since=...` and counts commit activity by GitHub author login
 ### 3) Maintainers
 
 ```bash
-repo-insights maintainers -repo golang/go
+emberlens maintainers -repo golang/go
 ```
 
 Flags:

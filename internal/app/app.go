@@ -11,14 +11,14 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/example/repo-insights/internal/analysis"
-	"github.com/example/repo-insights/internal/githubapi"
+	"github.com/example/emberlens/internal/analysis"
+	"github.com/example/emberlens/internal/githubapi"
 )
 
-const helpText = `repo-insights: GitHub repository people analytics from CLI (no DB).
+const helpText = `emberlens: GitHub repository people analytics from CLI (no DB).
 
 Usage:
-  repo-insights <command> [flags]
+  emberlens <command> [flags]
 
 Commands:
   contributors         List all-time contributors ranked by contributions
@@ -30,7 +30,7 @@ Global conventions:
   -token <token>           optional (or set GITHUB_TOKEN)
   -output table|json       default table
 
-Use "repo-insights <command> -h" for command-specific flags.
+Use "emberlens <command> -h" for command-specific flags.
 `
 
 type Runner struct {
