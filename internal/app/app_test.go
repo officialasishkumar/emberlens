@@ -241,3 +241,46 @@ func TestRunnerDiscoverUntriagedDispatchesCorrectly(t *testing.T) {
 		t.Fatalf("stdout = %s, want Untriaged issues dataset", stdout.String())
 	}
 }
+
+func TestRunnerDiscoverNeedsMaintainerDispatchesCorrectly(t *testing.T) {
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	client := &fakePlatformClient{
+		issues: []platform.Issue{
+			{
+				Number:    9,
+				Title:     "Busy issue",
+				State:     "open",
+				Comments:  4,
+				CreatedAt: now.Add(-12 * 24 * time.Hour),
+				UpdatedAt: now.Add(-3 * time.Hour),
+				User:      platform.User{Login: "alice"},
+			},
+		},
+		issueComments: map[int][]platform.IssueComment{
+			9: {
+				{User: platform.User{Login: "bob"}, CreatedAt: now.Add(-2 * time.Hour)},
+				{User: platform.User{Login: "carol"}, CreatedAt: now.Add(-time.Hour)},
+			},
+		},
+	}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	runner := newTestRunner(client, now, stdout, stderr)
+
+	code := runner.Run([]string{"discover", "-repo", "owner/repo", "-view", "needs-maintainer", "-output", "json", "-no-report"}, "", "")
+	if code != 0 {
+		t.Fatalf("Run() = %d, stderr=%s", code, stderr.String())
+	}
+	if len(client.issueCalls) != 1 {
+		t.Fatalf("len(issueCalls) = %d, want 1", len(client.issueCalls))
+	}
+	if got := client.issueCalls[0]; got.State != "open" || got.Sort != "updated" || got.Direction != "desc" {
+		t.Fatalf("issue query = %+v, want state=open sort=updated direction=desc", got)
+	}
+	if len(client.commentCalls) != 1 || client.commentCalls[0].number != 9 {
+		t.Fatalf("commentCalls = %+v, want one call for issue 9", client.commentCalls)
+	}
+	if !strings.Contains(stdout.String(), `"title": "Issues needing maintainer attention"`) {
+		t.Fatalf("stdout = %s, want needs-maintainer dataset", stdout.String())
+	}
+}
