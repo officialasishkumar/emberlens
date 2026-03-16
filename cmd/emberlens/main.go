@@ -7,6 +7,7 @@ import (
 )
 
 func main() {
-	r := app.NewRunner(os.Stdout, os.Stderr)
-	os.Exit(r.Run(os.Args[1:], os.Getenv("GITHUB_TOKEN"), os.Getenv("GITLAB_TOKEN")))
+	runner := app.NewRunner(os.Stdout, os.Stderr)
+	code := runner.Run(os.Args[1:], os.Getenv("GITHUB_TOKEN"), os.Getenv("GITLAB_TOKEN"))
+	os.Exit(code)
 }

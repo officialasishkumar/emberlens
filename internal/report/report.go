@@ -16,45 +16,42 @@ const defaultReportDir = "emberlens-reports"
 
 // Report captures the full output of a single emberlens run.
 type Report struct {
-	Version    string            `yaml:"version"`
-	Name       string            `yaml:"name"`
-	Command    string            `yaml:"command"`
-	Repo       string            `yaml:"repo"`
-	Subcommand string            `yaml:"subcommand"`
-	Status     string            `yaml:"status"`
-	Total      int               `yaml:"total"`
-	CreatedAt  string            `yaml:"created_at"`
-	TimeTaken  string            `yaml:"time_taken"`
-	People     []analysis.Person `yaml:"people"`
+	Version   string              `yaml:"version"`
+	Name      string              `yaml:"name"`
+	Command   string              `yaml:"command"`
+	Repo      string              `yaml:"repo"`
+	Status    string              `yaml:"status"`
+	Total     int                 `yaml:"total"`
+	CreatedAt string              `yaml:"created_at"`
+	TimeTaken string              `yaml:"time_taken"`
+	Result    analysis.Dataset    `yaml:"result"`
 }
 
 // Save writes a report YAML file into the report directory, organized like:
 //
-//	<reportDir>/<subcommand>/run-<N>/report.yaml
-func Save(reportDir string, subcommand string, repo string, command string, people []analysis.Person, elapsed time.Duration) (string, error) {
+//	<reportDir>/test-run-<N>/report.yaml
+func Save(reportDir string, repo string, command string, result analysis.Dataset, elapsed time.Duration) (string, error) {
 	if reportDir == "" {
 		reportDir = defaultReportDir
 	}
 
-	subDir := filepath.Join(reportDir, subcommand)
-	runIndex := nextRunIndex(subDir)
-	runDir := filepath.Join(subDir, fmt.Sprintf("run-%d", runIndex))
+	runIndex := nextRunIndex(reportDir)
+	runDir := filepath.Join(reportDir, fmt.Sprintf("test-run-%d", runIndex))
 
 	if err := os.MkdirAll(runDir, 0o755); err != nil {
 		return "", fmt.Errorf("create report directory: %w", err)
 	}
 
 	r := Report{
-		Version:    "v1",
-		Name:       fmt.Sprintf("%s-run-%d", subcommand, runIndex),
-		Command:    command,
-		Repo:       repo,
-		Subcommand: subcommand,
-		Status:     "success",
-		Total:      len(people),
-		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
-		TimeTaken:  elapsed.Round(time.Millisecond).String(),
-		People:     people,
+		Version:   "v2",
+		Name:      fmt.Sprintf("test-run-%d", runIndex),
+		Command:   command,
+		Repo:      repo,
+		Status:    "success",
+		Total:     len(result.Records),
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		TimeTaken: elapsed.Round(time.Millisecond).String(),
+		Result:    result,
 	}
 
 	data, err := yaml.Marshal(&r)
@@ -70,7 +67,7 @@ func Save(reportDir string, subcommand string, repo string, command string, peop
 	return reportPath, nil
 }
 
-// nextRunIndex scans the subcommand directory for existing run-N folders
+// nextRunIndex scans the report directory for existing test-run-N folders
 // and returns the next available index.
 func nextRunIndex(dir string) int {
 	entries, err := os.ReadDir(dir)
@@ -84,10 +81,10 @@ func nextRunIndex(dir string) int {
 			continue
 		}
 		name := e.Name()
-		if !strings.HasPrefix(name, "run-") {
+		if !strings.HasPrefix(name, "test-run-") {
 			continue
 		}
-		idxStr := strings.TrimPrefix(name, "run-")
+		idxStr := strings.TrimPrefix(name, "test-run-")
 		idx, err := strconv.Atoi(idxStr)
 		if err != nil {
 			continue

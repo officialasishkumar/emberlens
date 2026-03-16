@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/officialasishkumar/emberlens/internal/platform"
 )
 
 // newTestClient creates a Client pointing at the given test server.
@@ -237,8 +239,8 @@ func TestListIssues(t *testing.T) {
 		}
 		if ep == "/api/v4/projects/owner%2Frepo/issues" {
 			json.NewEncoder(w).Encode([]glIssue{
-				{IID: 1, Author: glUser{Username: "alice"}},
-				{IID: 2, Author: glUser{Username: "carol"}},
+				{IID: 1, Title: "Oldest issue", State: "opened", WebURL: "https://gitlab.com/owner/repo/-/issues/1", UserNotesCount: 3, Author: glUser{Username: "alice"}},
+				{IID: 2, Title: "Second issue", State: "opened", WebURL: "https://gitlab.com/owner/repo/-/issues/2", UserNotesCount: 1, Author: glUser{Username: "carol"}},
 			})
 			return
 		}
@@ -247,7 +249,7 @@ func TestListIssues(t *testing.T) {
 	defer srv.Close()
 
 	c := newTestClient(t, srv)
-	issues, err := c.ListIssues(context.Background(), "owner", "repo", 1)
+	issues, err := c.ListIssues(context.Background(), "owner", "repo", platform.IssueListOptions{MaxPages: 1})
 	if err != nil {
 		t.Fatalf("ListIssues() error = %v", err)
 	}
@@ -265,6 +267,48 @@ func TestListIssues(t *testing.T) {
 	// GitLab issues never have PullRequest set
 	if issues[0].PullRequest != nil {
 		t.Error("issues[0].PullRequest should be nil")
+	}
+	if issues[0].Title != "Oldest issue" {
+		t.Errorf("issues[0].Title = %q, want %q", issues[0].Title, "Oldest issue")
+	}
+	if issues[0].Comments != 3 {
+		t.Errorf("issues[0].Comments = %d, want 3", issues[0].Comments)
+	}
+}
+
+func TestListIssueComments(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ep := r.URL.EscapedPath()
+		if ep == "/api/v4/projects/owner%2Frepo/members/all" {
+			json.NewEncoder(w).Encode([]glMember{
+				{ID: 1, Username: "maintainer", AccessLevel: 40},
+			})
+			return
+		}
+		if ep == "/api/v4/projects/owner%2Frepo/issues/42/notes" {
+			json.NewEncoder(w).Encode([]glNote{
+				{Body: "system note", System: true, Author: glUser{Username: "maintainer"}},
+				{Body: "human note", Author: glUser{Username: "maintainer", WebURL: "https://gitlab.com/maintainer"}},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	c := newTestClient(t, srv)
+	comments, err := c.ListIssueComments(context.Background(), "owner", "repo", 42, 1)
+	if err != nil {
+		t.Fatalf("ListIssueComments() error = %v", err)
+	}
+	if len(comments) != 1 {
+		t.Fatalf("len = %d, want 1", len(comments))
+	}
+	if comments[0].AuthorAssociation != "MEMBER" {
+		t.Errorf("comments[0].AuthorAssociation = %q, want %q", comments[0].AuthorAssociation, "MEMBER")
+	}
+	if comments[0].Body != "human note" {
+		t.Errorf("comments[0].Body = %q, want %q", comments[0].Body, "human note")
 	}
 }
 

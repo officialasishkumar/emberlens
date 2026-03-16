@@ -114,9 +114,19 @@ func (c *Client) ListPullRequests(ctx context.Context, owner, repo string, maxPa
 	return collectPaged[platform.PullRequest](ctx, c, "/repos/"+owner+"/"+repo+"/pulls", q, maxPages)
 }
 
-func (c *Client) ListIssues(ctx context.Context, owner, repo string, maxPages int) ([]platform.Issue, error) {
-	q := map[string]string{"state": "all", "sort": "updated", "direction": "desc"}
-	return collectPaged[platform.Issue](ctx, c, "/repos/"+owner+"/"+repo+"/issues", q, maxPages)
+func (c *Client) ListIssues(ctx context.Context, owner, repo string, opts platform.IssueListOptions) ([]platform.Issue, error) {
+	q := map[string]string{
+		"state":     defaultIssueState(opts.State),
+		"sort":      defaultIssueSort(opts.Sort),
+		"direction": defaultIssueDirection(opts.Direction),
+	}
+	return collectPaged[platform.Issue](ctx, c, "/repos/"+owner+"/"+repo+"/issues", q, opts.MaxPages)
+}
+
+func (c *Client) ListIssueComments(ctx context.Context, owner, repo string, number int, maxPages int) ([]platform.IssueComment, error) {
+	q := map[string]string{"sort": "created", "direction": "asc"}
+	endpoint := fmt.Sprintf("/repos/%s/%s/issues/%d/comments", owner, repo, number)
+	return collectPaged[platform.IssueComment](ctx, c, endpoint, q, maxPages)
 }
 
 func (c *Client) ListOrgMembers(ctx context.Context, org string) ([]platform.User, error) {
@@ -131,4 +141,31 @@ func (c *Client) ListCommitsSince(ctx context.Context, owner, repo string, since
 func (c *Client) GetProfile(ctx context.Context, login string) (platform.Profile, error) {
 	var out platform.Profile
 	return out, c.doJSON(ctx, http.MethodGet, "/users/"+login, nil, &out)
+}
+
+func defaultIssueState(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "open", "closed", "all":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "all"
+	}
+}
+
+func defaultIssueSort(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "created", "updated", "comments":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "updated"
+	}
+}
+
+func defaultIssueDirection(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "asc", "desc":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "desc"
+	}
 }

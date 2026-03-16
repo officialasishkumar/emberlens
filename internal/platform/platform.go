@@ -16,7 +16,8 @@ type Client interface {
 	GetRepo(ctx context.Context, owner, repo string) (Repo, error)
 	ListContributors(ctx context.Context, owner, repo string, maxPages int) ([]Contributor, error)
 	ListPullRequests(ctx context.Context, owner, repo string, maxPages int) ([]PullRequest, error)
-	ListIssues(ctx context.Context, owner, repo string, maxPages int) ([]Issue, error)
+	ListIssues(ctx context.Context, owner, repo string, opts IssueListOptions) ([]Issue, error)
+	ListIssueComments(ctx context.Context, owner, repo string, number int, maxPages int) ([]IssueComment, error)
 	ListOrgMembers(ctx context.Context, org string) ([]User, error)
 	ListCommitsSince(ctx context.Context, owner, repo string, since time.Time, maxPages int) ([]Commit, error)
 	GetProfile(ctx context.Context, login string) (Profile, error)
@@ -52,10 +53,34 @@ type PullRequest struct {
 	AuthorAssociation string `json:"author_association"`
 }
 
+type IssueListOptions struct {
+	MaxPages  int
+	State     string
+	Sort      string
+	Direction string
+}
+
 type Issue struct {
 	User              User   `json:"user"`
 	PullRequest       any    `json:"pull_request"`
 	AuthorAssociation string `json:"author_association"`
+	Number            int    `json:"number"`
+	Title             string `json:"title"`
+	State             string `json:"state"`
+	HTMLURL           string `json:"html_url"`
+	Comments          int    `json:"comments"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+	ClosedAt          *time.Time `json:"closed_at"`
+}
+
+type IssueComment struct {
+	User              User      `json:"user"`
+	AuthorAssociation string    `json:"author_association"`
+	Body              string    `json:"body"`
+	HTMLURL           string    `json:"html_url"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 type Commit struct {

@@ -27,10 +27,10 @@ func (c *contributorsCmd) RegisterFlags(fs *flag.FlagSet) {
 	fs.IntVar(&c.maxPages, "max-pages", 3, "max contributor pages to fetch (100 per page)")
 }
 
-func (c *contributorsCmd) Execute(rc *RunContext) ([]analysis.Person, error) {
+func (c *contributorsCmd) Execute(rc *RunContext) (analysis.Dataset, error) {
 	contributors, err := rc.Client.ListContributors(rc.Ctx, rc.Owner, rc.Repo, c.maxPages)
 	if err != nil {
-		return nil, err
+		return analysis.Dataset{}, err
 	}
 
 	var profiles map[string]platform.Profile
@@ -38,7 +38,10 @@ func (c *contributorsCmd) Execute(rc *RunContext) ([]analysis.Person, error) {
 		profiles = fetchProfiles(rc.Ctx, rc.Client, contributorLogins(contributors))
 	}
 
-	return analysis.BuildContributors(contributors, profiles, rc.ProfileBaseURL), nil
+	people := analysis.BuildContributors(contributors, profiles, rc.ProfileBaseURL)
+	return analysis.ContributorsDataset("Contributors", people, []string{
+		"Flags: -profiles -limit 0 -output json -max-pages 0",
+	}), nil
 }
 
 // =============================================================================
@@ -60,11 +63,11 @@ func (c *activeContributorsCmd) RegisterFlags(fs *flag.FlagSet) {
 	fs.IntVar(&c.commitPages, "commit-pages", 5, "max commit pages to fetch (100 per page)")
 }
 
-func (c *activeContributorsCmd) Execute(rc *RunContext) ([]analysis.Person, error) {
+func (c *activeContributorsCmd) Execute(rc *RunContext) (analysis.Dataset, error) {
 	sinceTs := rc.Now.Add(-c.since)
 	commits, err := rc.Client.ListCommitsSince(rc.Ctx, rc.Owner, rc.Repo, sinceTs, c.commitPages)
 	if err != nil {
-		return nil, err
+		return analysis.Dataset{}, err
 	}
 
 	counts := map[string]int{}
@@ -80,7 +83,16 @@ func (c *activeContributorsCmd) Execute(rc *RunContext) ([]analysis.Person, erro
 		profiles = fetchProfiles(rc.Ctx, rc.Client, mapKeys(counts))
 	}
 
-	return analysis.BuildActiveContributors(counts, profiles, rc.ProfileBaseURL), nil
+	people := analysis.BuildActiveContributors(counts, profiles, rc.ProfileBaseURL)
+	result := analysis.ContributorsDataset("Active contributors", people, []string{
+		"Flags: -since 168h -commit-pages 10 -limit 0 -output json",
+	})
+	result.Summary = []analysis.Stat{
+		{Label: "Active contributors", Value: analysis.StringValue(len(people))},
+		{Label: "Window start", Value: sinceTs.Format(time.DateOnly)},
+		{Label: "Commit scan pages", Value: analysis.StringValue(c.commitPages)},
+	}
+	return result, nil
 }
 
 // =============================================================================
@@ -110,15 +122,15 @@ func (c *maintainersCmd) RegisterFlags(fs *flag.FlagSet) {
 	fs.IntVar(&c.maxPages, "max-pages", 3, "max contributor pages to fetch (0 = all)")
 }
 
-func (c *maintainersCmd) Execute(rc *RunContext) ([]analysis.Person, error) {
+func (c *maintainersCmd) Execute(rc *RunContext) (analysis.Dataset, error) {
 	repoMeta, err := rc.Client.GetRepo(rc.Ctx, rc.Owner, rc.Repo)
 	if err != nil {
-		return nil, err
+		return analysis.Dataset{}, err
 	}
 
 	contributors, err := rc.Client.ListContributors(rc.Ctx, rc.Owner, rc.Repo, c.maxPages)
 	if err != nil {
-		return nil, err
+		return analysis.Dataset{}, err
 	}
 
 	var teamSignals map[string][]string
@@ -136,11 +148,17 @@ func (c *maintainersCmd) Execute(rc *RunContext) ([]analysis.Person, error) {
 		profiles = fetchProfiles(rc.Ctx, rc.Client, logins)
 	}
 
-	return analysis.BuildMaintainers(contributors, teamSignals, profiles, analysis.MaintainerConfig{
+	people, buildErr := analysis.BuildMaintainers(contributors, teamSignals, profiles, analysis.MaintainerConfig{
 		MinContributions: c.minContrib,
 		TopPercent:       c.topPercent,
 		SignalWeight:     c.signalWeight,
 	}, rc.ProfileBaseURL)
+	if buildErr != nil {
+		return analysis.Dataset{}, buildErr
+	}
+	return analysis.MaintainersDataset("Likely maintainers", people, []string{
+		"Flags: -signals -profiles -limit 0 -max-pages 0 -output json",
+	}), nil
 }
 
 // =============================================================================
@@ -168,7 +186,12 @@ func collectTeamSignals(ctx context.Context, client platform.Client, owner, repo
 		}
 	}
 
-	issues, err := client.ListIssues(ctx, owner, repo, maxPages)
+	issues, err := client.ListIssues(ctx, owner, repo, platform.IssueListOptions{
+		MaxPages:  maxPages,
+		State:     "all",
+		Sort:      "updated",
+		Direction: "desc",
+	})
 	if err == nil {
 		for _, issue := range issues {
 			if issue.PullRequest != nil {

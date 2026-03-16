@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/officialasishkumar/emberlens/internal/platform"
@@ -23,6 +24,8 @@ type Client struct {
 	token      string
 	apiURL     string // e.g. "https://gitlab.com/api/v4"
 	webURL     string // e.g. "https://gitlab.com"
+	mu         sync.Mutex
+	memberCache map[string]map[string]int
 }
 
 // NewClient creates a new GitLab client. baseURL is the GitLab instance URL
@@ -38,6 +41,7 @@ func NewClient(token, baseURL string) *Client {
 		token:      token,
 		apiURL:     baseURL + "/api/v4",
 		webURL:     baseURL,
+		memberCache: map[string]map[string]int{},
 	}
 }
 
@@ -172,8 +176,15 @@ type glMergeRequest struct {
 }
 
 type glIssue struct {
-	IID    int    `json:"iid"`
-	Author glUser `json:"author"`
+	IID           int        `json:"iid"`
+	Title         string     `json:"title"`
+	State         string     `json:"state"`
+	WebURL        string     `json:"web_url"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+	ClosedAt      *time.Time `json:"closed_at"`
+	UserNotesCount int       `json:"user_notes_count"`
+	Author        glUser     `json:"author"`
 }
 
 type glCommit struct {
@@ -181,6 +192,14 @@ type glCommit struct {
 	AuthorName   string `json:"author_name"`
 	AuthorEmail  string `json:"author_email"`
 	AuthoredDate string `json:"authored_date"`
+}
+
+type glNote struct {
+	Body      string    `json:"body"`
+	System    bool      `json:"system"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Author    glUser    `json:"author"`
 }
 
 // ---------------------------------------------------------------------------
@@ -214,7 +233,7 @@ func (c *Client) ListContributors(ctx context.Context, owner, repo string, maxPa
 	}
 
 	// Fetch project members to map contributor names to GitLab usernames.
-	members, _ := collectPaged[glMember](ctx, c, "/projects/"+pp+"/members/all", nil, 0)
+	members, _ := c.projectMembers(ctx, pp)
 	nameToMember := make(map[string]glMember, len(members))
 	for _, m := range members {
 		nameToMember[strings.ToLower(m.Name)] = m
@@ -240,11 +259,7 @@ func (c *Client) ListPullRequests(ctx context.Context, owner, repo string, maxPa
 	pp := projectPath(owner, repo)
 
 	// Get member access levels to populate AuthorAssociation.
-	members, _ := collectPaged[glMember](ctx, c, "/projects/"+pp+"/members/all", nil, 0)
-	accessMap := make(map[string]int, len(members))
-	for _, m := range members {
-		accessMap[m.Username] = m.AccessLevel
-	}
+	accessMap, _ := c.projectMemberAccessMap(ctx, pp)
 
 	q := map[string]string{"state": "all", "order_by": "updated_at", "sort": "desc"}
 	glMRs, err := collectPaged[glMergeRequest](ctx, c, "/projects/"+pp+"/merge_requests", q, maxPages)
@@ -266,17 +281,17 @@ func (c *Client) ListPullRequests(ctx context.Context, owner, repo string, maxPa
 	return out, nil
 }
 
-func (c *Client) ListIssues(ctx context.Context, owner, repo string, maxPages int) ([]platform.Issue, error) {
+func (c *Client) ListIssues(ctx context.Context, owner, repo string, opts platform.IssueListOptions) ([]platform.Issue, error) {
 	pp := projectPath(owner, repo)
 
-	members, _ := collectPaged[glMember](ctx, c, "/projects/"+pp+"/members/all", nil, 0)
-	accessMap := make(map[string]int, len(members))
-	for _, m := range members {
-		accessMap[m.Username] = m.AccessLevel
-	}
+	accessMap, _ := c.projectMemberAccessMap(ctx, pp)
 
-	q := map[string]string{"state": "all", "order_by": "updated_at", "sort": "desc"}
-	glIssues, err := collectPaged[glIssue](ctx, c, "/projects/"+pp+"/issues", q, maxPages)
+	q := map[string]string{
+		"state":    gitlabIssueState(opts.State),
+		"order_by": gitlabIssueOrderBy(opts.Sort),
+		"sort":     gitlabIssueDirection(opts.Direction),
+	}
+	glIssues, err := collectPaged[glIssue](ctx, c, "/projects/"+pp+"/issues", q, opts.MaxPages)
 	if err != nil {
 		return nil, err
 	}
@@ -289,9 +304,46 @@ func (c *Client) ListIssues(ctx context.Context, owner, repo string, maxPages in
 				HTMLURL: gi.Author.WebURL,
 				Type:    "User",
 			},
-			// GitLab issues never include merge requests, so PullRequest is always nil.
+			Number:            gi.IID,
+			Title:             gi.Title,
+			State:             gi.State,
+			HTMLURL:           gi.WebURL,
+			Comments:          gi.UserNotesCount,
+			CreatedAt:         gi.CreatedAt,
+			UpdatedAt:         gi.UpdatedAt,
+			ClosedAt:          gi.ClosedAt,
 			PullRequest:       nil,
 			AuthorAssociation: accessLevelToAssociation(accessMap[gi.Author.Username]),
+		})
+	}
+	return out, nil
+}
+
+func (c *Client) ListIssueComments(ctx context.Context, owner, repo string, number int, maxPages int) ([]platform.IssueComment, error) {
+	pp := projectPath(owner, repo)
+	accessMap, _ := c.projectMemberAccessMap(ctx, pp)
+	q := map[string]string{"order_by": "created_at", "sort": "asc"}
+	endpoint := fmt.Sprintf("/projects/%s/issues/%d/notes", pp, number)
+	notes, err := collectPaged[glNote](ctx, c, endpoint, q, maxPages)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]platform.IssueComment, 0, len(notes))
+	for _, note := range notes {
+		if note.System {
+			continue
+		}
+		out = append(out, platform.IssueComment{
+			User: platform.User{
+				Login:   note.Author.Username,
+				HTMLURL: note.Author.WebURL,
+				Type:    "User",
+			},
+			AuthorAssociation: accessLevelToAssociation(accessMap[note.Author.Username]),
+			Body:              note.Body,
+			CreatedAt:         note.CreatedAt,
+			UpdatedAt:         note.UpdatedAt,
 		})
 	}
 	return out, nil
@@ -322,7 +374,7 @@ func (c *Client) ListCommitsSince(ctx context.Context, owner, repo string, since
 	}
 
 	// Fetch project members to resolve commit authors to GitLab usernames.
-	members, _ := collectPaged[glMember](ctx, c, "/projects/"+pp+"/members/all", nil, 0)
+	members, _ := c.projectMembers(ctx, pp)
 	nameToMember := make(map[string]glMember, len(members))
 	for _, m := range members {
 		nameToMember[strings.ToLower(m.Name)] = m
@@ -388,4 +440,71 @@ func accessLevelToAssociation(level int) string {
 	default:
 		return ""
 	}
+}
+
+func gitlabIssueState(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "open", "opened":
+		return "opened"
+	case "closed":
+		return "closed"
+	default:
+		return "all"
+	}
+}
+
+func gitlabIssueOrderBy(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "created", "created_at":
+		return "created_at"
+	case "updated", "updated_at":
+		return "updated_at"
+	default:
+		return "updated_at"
+	}
+}
+
+func gitlabIssueDirection(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "asc", "desc":
+		return strings.ToLower(strings.TrimSpace(v))
+	default:
+		return "desc"
+	}
+}
+
+func (c *Client) projectMemberAccessMap(ctx context.Context, project string) (map[string]int, error) {
+	c.mu.Lock()
+	if cached, ok := c.memberCache[project]; ok {
+		out := cloneAccessMap(cached)
+		c.mu.Unlock()
+		return out, nil
+	}
+	c.mu.Unlock()
+
+	members, err := c.projectMembers(ctx, project)
+	if err != nil {
+		return nil, err
+	}
+	accessMap := make(map[string]int, len(members))
+	for _, m := range members {
+		accessMap[m.Username] = m.AccessLevel
+	}
+
+	c.mu.Lock()
+	c.memberCache[project] = cloneAccessMap(accessMap)
+	c.mu.Unlock()
+	return accessMap, nil
+}
+
+func (c *Client) projectMembers(ctx context.Context, project string) ([]glMember, error) {
+	return collectPaged[glMember](ctx, c, "/projects/"+project+"/members/all", nil, 0)
+}
+
+func cloneAccessMap(in map[string]int) map[string]int {
+	out := make(map[string]int, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }

@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"time"
 
@@ -29,7 +30,7 @@ type Subcommand interface {
 	Name() string
 	Description() string
 	RegisterFlags(fs *flag.FlagSet)
-	Execute(rc *RunContext) ([]analysis.Person, error)
+	Execute(rc *RunContext) (analysis.Dataset, error)
 }
 
 // RunContext is the shared execution context passed to every command.
@@ -66,6 +67,16 @@ func NewRunner(stdout, stderr io.Writer) *Runner {
 	r.Register(&contributorsCmd{})
 	r.Register(&activeContributorsCmd{})
 	r.Register(&maintainersCmd{})
+	r.Register(&issuesNewCmd{})
+	r.Register(&issuesActiveCmd{})
+	r.Register(&issuesClosedCmd{})
+	r.Register(&issueBacklogCmd{})
+	r.Register(&issueAgeCmd{})
+	r.Register(&issueResolutionCmd{})
+	r.Register(&issueResponseCmd{})
+	r.Register(&issueParticipantsCmd{})
+	r.Register(&issueAbandonedCmd{})
+	r.Register(&issueCountsCmd{})
 	return r
 }
 
@@ -77,7 +88,7 @@ func (r *Runner) Register(cmd Subcommand) {
 
 func (r *Runner) helpText() string {
 	var b strings.Builder
-	b.WriteString("emberlens — repository people analytics from the CLI.\n\n")
+	b.WriteString("emberlens — repository analytics from the CLI.\n\n")
 	b.WriteString("Usage:\n  emberlens <command> [flags]\n\n")
 	b.WriteString("Commands:\n")
 	for _, name := range r.order {
@@ -159,19 +170,16 @@ func (r *Runner) Run(args []string, envGitHubToken, envGitLabToken string) int {
 	}
 
 	// Execute
-	people, err := cmd.Execute(rc)
+	result, err := cmd.Execute(rc)
 	if err != nil {
 		return r.fail(err)
 	}
 
-	total := len(people)
-	if common.limit > 0 && common.limit < len(people) {
-		people = people[:common.limit]
-	}
+	result, total := result.CloneWithLimit(common.limit)
 	elapsed := time.Since(start)
 
 	// Render output
-	if err := r.render(dp, people, common); err != nil {
+	if err := r.render(dp, result, common); err != nil {
 		return r.fail(err)
 	}
 
@@ -179,7 +187,7 @@ func (r *Runner) Run(args []string, envGitHubToken, envGitLabToken string) int {
 	var reportPath string
 	if !common.noReport {
 		cmdStr := reconstructCommand(cmd.Name(), fs)
-		path, saveErr := report.Save(common.reportDir, cmd.Name(), common.repo, cmdStr, people, elapsed)
+		path, saveErr := report.Save(common.reportDir, common.repo, cmdStr, result, elapsed)
 		if saveErr != nil {
 			fmt.Fprintf(r.Stderr, "warning: failed to save report: %v\n", saveErr)
 		} else {
@@ -191,10 +199,11 @@ func (r *Runner) Run(args []string, envGitHubToken, envGitLabToken string) int {
 	if common.output == "table" {
 		var lines []string
 		if common.limit > 0 && common.limit < total {
-			lines = append(lines, fmt.Sprintf("Showing %d of %d results · %s", len(people), total, elapsed.Round(time.Millisecond)))
+			lines = append(lines, fmt.Sprintf("Showing %d of %d rows · %s", len(result.Records), total, elapsed.Round(time.Millisecond)))
 		} else {
-			lines = append(lines, fmt.Sprintf("%d results · %s", total, elapsed.Round(time.Millisecond)))
+			lines = append(lines, fmt.Sprintf("%d rows · %s", total, elapsed.Round(time.Millisecond)))
 		}
+		lines = append(lines, result.Hints...)
 		if reportPath != "" {
 			lines = append(lines, "Report: "+reportPath)
 		}
@@ -262,51 +271,45 @@ func (f *commonFlags) postParse() {
 // Output rendering
 // ---------------------------------------------------------------------------
 
-func (r *Runner) render(dp *display.Printer, people []analysis.Person, common *commonFlags) error {
+func (r *Runner) render(dp *display.Printer, result analysis.Dataset, common *commonFlags) error {
 	switch common.output {
 	case "table":
-		dp.Banner("emberlens", common.repo)
+		dp.Banner("emberlens", common.repo, result.Title)
+		dp.Stats(toDisplayStats(result.Summary))
 		if common.verbose {
-			r.printCards(dp, people)
+			r.printCards(dp, result)
 		} else {
-			r.printTable(dp, people)
+			r.printTable(dp, result)
 		}
 		return nil
 	case "json":
 		enc := json.NewEncoder(r.Stdout)
 		enc.SetIndent("", "  ")
-		return enc.Encode(people)
+		return enc.Encode(result)
 	default:
 		return fmt.Errorf("unsupported -output=%q (expected table|json)", common.output)
 	}
 }
 
-func (r *Runner) printTable(dp *display.Printer, people []analysis.Person) {
-	headers := []string{"#", "LOGIN", "NAME", "CONTRIBUTIONS", "PROFILE"}
-	rows := make([][]string, len(people))
-	for i, p := range people {
-		rows[i] = []string{
-			fmt.Sprintf("%d", i+1),
-			p.Login,
-			emptyDash(p.Name),
-			fmt.Sprintf("%d", p.Contributions),
-			p.ProfileURL,
+func (r *Runner) printTable(dp *display.Printer, result analysis.Dataset) {
+	headers := make([]string, 0, len(result.Columns))
+	for _, column := range result.Columns {
+		headers = append(headers, column.Label)
+	}
+	rows := make([][]string, 0, len(result.Records))
+	for _, record := range result.Records {
+		row := make([]string, 0, len(result.Columns))
+		for _, column := range result.Columns {
+			row = append(row, analysis.StringValue(record[column.Key]))
 		}
+		rows = append(rows, row)
 	}
 	dp.Table(headers, rows)
 }
 
-func (r *Runner) printCards(dp *display.Printer, people []analysis.Person) {
-	for i, p := range people {
-		dp.Card(i+1, []display.CardField{
-			{Label: "Login", Value: p.Login},
-			{Label: "Name", Value: emptyDash(p.Name)},
-			{Label: "Contributions", Value: fmt.Sprintf("%d", p.Contributions)},
-			{Label: "Profile", Value: p.ProfileURL},
-			{Label: "Links", Value: emptyDash(strings.Join(p.ExternalLinks, ", "))},
-			{Label: "Signals", Value: emptyDash(strings.Join(p.Signals, "; "))},
-			{Label: "Reasons", Value: emptyDash(strings.Join(p.Reasons, " | "))},
-		})
+func (r *Runner) printCards(dp *display.Printer, result analysis.Dataset) {
+	for i, record := range result.Records {
+		dp.Card(i+1, buildCardFields(result, record))
 	}
 }
 
@@ -350,4 +353,55 @@ func emptyDash(v string) string {
 		return "-"
 	}
 	return v
+}
+
+func buildCardFields(result analysis.Dataset, record map[string]any) []display.CardField {
+	fields := make([]display.CardField, 0, len(record))
+	seen := map[string]struct{}{}
+	for _, column := range result.Columns {
+		fields = append(fields, display.CardField{
+			Label: column.Label,
+			Value: analysis.StringValue(record[column.Key]),
+		})
+		seen[column.Key] = struct{}{}
+	}
+
+	extraKeys := make([]string, 0, len(record))
+	for key := range record {
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		extraKeys = append(extraKeys, key)
+	}
+	sort.Strings(extraKeys)
+	for _, key := range extraKeys {
+		fields = append(fields, display.CardField{
+			Label: formatFieldLabel(key),
+			Value: analysis.StringValue(record[key]),
+		})
+	}
+	return fields
+}
+
+func toDisplayStats(stats []analysis.Stat) []display.Stat {
+	out := make([]display.Stat, 0, len(stats))
+	for _, stat := range stats {
+		out = append(out, display.Stat{Label: stat.Label, Value: stat.Value})
+	}
+	return out
+}
+
+func formatFieldLabel(key string) string {
+	parts := strings.Fields(strings.ReplaceAll(key, "_", " "))
+	for i, part := range parts {
+		if strings.EqualFold(part, "url") {
+			parts[i] = "URL"
+			continue
+		}
+		if part == "" {
+			continue
+		}
+		parts[i] = strings.ToUpper(part[:1]) + strings.ToLower(part[1:])
+	}
+	return strings.Join(parts, " ")
 }

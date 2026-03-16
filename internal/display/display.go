@@ -21,6 +21,11 @@ type Printer struct {
 	Color bool
 }
 
+type Stat struct {
+	Label string
+	Value string
+}
+
 func (p *Printer) wrap(code, s string) string {
 	if !p.Color {
 		return s
@@ -43,6 +48,37 @@ func (p *Printer) Banner(parts ...string) {
 	}
 	fmt.Fprintf(p.W, "\n  %s\n", p.Bold(title))
 	fmt.Fprintf(p.W, "  %s\n\n", p.Dim(strings.Repeat("\u2500", width)))
+}
+
+// Stats prints a compact summary block above the main table.
+func (p *Printer) Stats(stats []Stat) {
+	if len(stats) == 0 {
+		return
+	}
+
+	widths := make([]int, len(stats))
+	for i, stat := range stats {
+		widths[i] = len(stat.Label)
+		if len(stat.Value) > widths[i] {
+			widths[i] = len(stat.Value)
+		}
+	}
+
+	var labels, values strings.Builder
+	labels.WriteString("  ")
+	values.WriteString("  ")
+	for i, stat := range stats {
+		fmt.Fprintf(&labels, "%-*s", widths[i], stat.Label)
+		values.WriteString(p.Green(fmt.Sprintf("%-*s", widths[i], stat.Value)))
+		if i < len(stats)-1 {
+			labels.WriteString("  ")
+			values.WriteString("  ")
+		}
+	}
+
+	fmt.Fprintln(p.W, p.Dim(labels.String()))
+	fmt.Fprintln(p.W, values.String())
+	fmt.Fprintln(p.W)
 }
 
 // Table renders aligned columns with a bold header and dim separator lines.
