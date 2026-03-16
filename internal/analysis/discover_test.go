@@ -98,3 +98,28 @@ func TestBuildDiscoverHotspotsDataset(t *testing.T) {
 		t.Fatalf("participants = %v, want %d", got, 4)
 	}
 }
+
+func TestBuildDiscoverUntriagedDatasetSkipsMaintainerRepliedIssues(t *testing.T) {
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	issues := []platform.Issue{
+		{
+			Number:    20,
+			Title:     "Already answered",
+			State:     "open",
+			Comments:  1,
+			CreatedAt: now.Add(-14 * 24 * time.Hour),
+			UpdatedAt: now.Add(-24 * time.Hour),
+			User:      platform.User{Login: "alice"},
+		},
+	}
+	comments := map[int][]platform.IssueComment{
+		20: {
+			{User: platform.User{Login: "maintainer"}, AuthorAssociation: "MEMBER", CreatedAt: now.Add(-23 * time.Hour)},
+		},
+	}
+
+	result := BuildDiscoverUntriagedDataset(issues, comments, now, 7*24*time.Hour, DiscoverSortAge)
+	if len(result.Records) != 0 {
+		t.Fatalf("len(records) = %d, want 0", len(result.Records))
+	}
+}
