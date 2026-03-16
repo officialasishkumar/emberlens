@@ -50,10 +50,11 @@ So the honest answer to "what analytics can Augur do from the CLI?" is:
 
 ## What Emberlens provides now
 
-Emberlens now covers two analytics domains well enough for a terminal product:
+Emberlens now covers three analytics domains well enough for a terminal product:
 
 - people analytics
 - issue analytics
+- discovery analytics
 
 It also has a generalized dataset model now, so the CLI is no longer locked to people-only rows.
 
@@ -135,6 +136,23 @@ Issue-specific flags:
 - duration and latency commands
   - `-unit`
   - `-comment-pages`
+
+#### Discovery analytics
+
+- `discover`
+  - `-view untriaged`
+  - `-view needs-maintainer`
+  - `-view hotspots`
+
+Discovery-specific flags:
+
+- `-since`
+- `-min-age`
+- `-min-comments`
+- `-min-participants`
+- `-sort`
+- `-comment-pages`
+- `-max-pages`
 
 ### Terminal contract
 
