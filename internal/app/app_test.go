@@ -328,3 +328,22 @@ func TestRunnerDiscoverHotspotsDispatchesCorrectly(t *testing.T) {
 		t.Fatalf("stdout = %s, want hotspots dataset", stdout.String())
 	}
 }
+
+func TestRunnerDiscoverRejectsUnsupportedSort(t *testing.T) {
+	now := time.Date(2026, 3, 16, 12, 0, 0, 0, time.UTC)
+	client := &fakePlatformClient{}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	runner := newTestRunner(client, now, stdout, stderr)
+
+	code := runner.Run([]string{"discover", "-repo", "owner/repo", "-view", "untriaged", "-sort", "heat", "-no-report"}, "", "")
+	if code != 1 {
+		t.Fatalf("Run() = %d, want 1", code)
+	}
+	if len(client.issueCalls) != 0 {
+		t.Fatalf("len(issueCalls) = %d, want 0", len(client.issueCalls))
+	}
+	if !strings.Contains(stderr.String(), "unsupported -sort") {
+		t.Fatalf("stderr = %q, want unsupported -sort error", stderr.String())
+	}
+}
