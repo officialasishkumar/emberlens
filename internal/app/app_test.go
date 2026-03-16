@@ -74,6 +74,9 @@ func TestRunnerHelpShowsUnifiedIssuesCommand(t *testing.T) {
 	if !strings.Contains(help, "issues") {
 		t.Fatalf("help text missing unified issues command:\n%s", help)
 	}
+	if !strings.Contains(help, "discover") {
+		t.Fatalf("help text missing discover command:\n%s", help)
+	}
 
 	for _, legacy := range []string{
 		"issues-new",
