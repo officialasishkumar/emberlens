@@ -12,9 +12,10 @@ import (
 )
 
 type fakePlatformClient struct {
-	issues       []platform.Issue
-	issueCalls   []platform.IssueListOptions
-	commentCalls []struct {
+	issues        []platform.Issue
+	issueComments map[int][]platform.IssueComment
+	issueCalls    []platform.IssueListOptions
+	commentCalls  []struct {
 		number   int
 		maxPages int
 	}
@@ -44,7 +45,7 @@ func (f *fakePlatformClient) ListIssueComments(_ context.Context, _, _ string, n
 		number   int
 		maxPages int
 	}{number: number, maxPages: maxPages})
-	return nil, nil
+	return append([]platform.IssueComment(nil), f.issueComments[number]...), nil
 }
 
 func (f *fakePlatformClient) ListOrgMembers(context.Context, string) ([]platform.User, error) {
