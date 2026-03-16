@@ -110,16 +110,17 @@ People-specific flags:
 
 #### Issue analytics
 
-- `issues-new`
-- `issues-active`
-- `issues-closed`
-- `issue-backlog`
-- `issue-age`
-- `issue-resolution`
-- `issue-response`
-- `issue-participants`
-- `issue-abandoned`
-- `issue-counts`
+- `issues`
+  - `-view counts`
+  - `-view new`
+  - `-view active`
+  - `-view closed`
+  - `-view backlog`
+  - `-view age`
+  - `-view resolution`
+  - `-view response`
+  - `-view participants`
+  - `-view abandoned`
 
 Issue-specific flags:
 
@@ -177,8 +178,8 @@ Emberlens can now answer:
 Important implementation notes:
 
 - GitHub pull requests are excluded from issue metrics
-- `issues-active` uses the issue `updated_at` timestamp
-- `issue-response` uses first maintainer comment after issue creation
+- `issues -view active` uses the issue `updated_at` timestamp
+- `issues -view response` uses first maintainer comment after issue creation
 - GitHub maintainer inference uses author associations
 - GitLab maintainer inference uses project member access levels
 - abandoned issues are defined by inactivity since last update

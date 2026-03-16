@@ -28,16 +28,20 @@ Today Emberlens covers two analytics domains:
 
 | Command | What it shows | Command flags |
 |---|---|---|
-| `issues-new` | new issue volume over time | `-since`, `-period`, `-max-pages` |
-| `issues-active` | issue activity over time based on last update | `-since`, `-period`, `-max-pages` |
-| `issues-closed` | closed issue volume plus average resolution summary | `-since`, `-period`, `-unit`, `-max-pages` |
-| `issue-backlog` | oldest open issues in the backlog | `-stale-for`, `-sort`, `-max-pages` |
-| `issue-age` | open issue age distribution | `-max-pages` |
-| `issue-resolution` | resolution duration for recently closed issues | `-since`, `-unit`, `-sort`, `-max-pages` |
-| `issue-response` | first maintainer response latency | `-since`, `-comment-pages`, `-unit`, `-max-pages` |
-| `issue-participants` | issues with the most distinct participants | `-since`, `-comment-pages`, `-max-pages` |
-| `issue-abandoned` | stale open issues with no recent activity | `-stale-for`, `-comment-pages`, `-max-pages` |
-| `issue-counts` | open and closed issue inventory plus recent totals | `-since`, `-max-pages` |
+| `issues` | issue analytics selected by `-view` | `-view`, `-since`, `-period`, `-unit`, `-sort`, `-stale-for`, `-comment-pages`, `-max-pages` |
+
+| `-view` value | What it shows |
+|---|---|
+| `counts` | open and closed issue inventory plus recent totals |
+| `new` | new issue volume over time |
+| `active` | issue activity over time based on last update |
+| `closed` | closed issue volume plus average resolution summary |
+| `backlog` | oldest open issues in the backlog |
+| `age` | open issue age distribution |
+| `resolution` | resolution duration for recently closed issues |
+| `response` | first maintainer response latency |
+| `participants` | issues with the most distinct participants |
+| `abandoned` | stale open issues with no recent activity |
 
 ## Platform Support
 
@@ -108,15 +112,15 @@ Examples:
 
 ```bash
 emberlens contributors -repo golang/go
-emberlens issues-new -repo chaoss/augur -since 720h -period week
-emberlens issue-backlog -repo chaoss/augur -stale-for 1440h
+emberlens issues -repo chaoss/augur -view new -since 720h -period week
+emberlens issues -repo chaoss/augur -view backlog -stale-for 1440h
 ```
 
 To reveal more detail:
 
 ```bash
-emberlens issue-resolution -repo chaoss/augur -verbose -limit 10
-emberlens issue-participants -repo chaoss/augur -output json | jq
+emberlens issues -repo chaoss/augur -view resolution -verbose -limit 10
+emberlens issues -repo chaoss/augur -view participants -output json | jq
 emberlens maintainers -repo keploy/keploy -signals -profiles -limit 0
 ```
 
@@ -160,16 +164,16 @@ emberlens maintainers -repo keploy/keploy -signals -signal-pages 5
 ### Issues
 
 ```bash
-emberlens issues-new -repo chaoss/augur -since 720h -period week
-emberlens issues-active -repo chaoss/augur -since 720h -period day
-emberlens issues-closed -repo chaoss/augur -since 720h -period week -unit days
-emberlens issue-backlog -repo chaoss/augur -stale-for 720h -sort age
-emberlens issue-age -repo chaoss/augur
-emberlens issue-resolution -repo chaoss/augur -since 1440h -unit days -sort duration
-emberlens issue-response -repo chaoss/augur -since 720h -comment-pages 2 -unit hours
-emberlens issue-participants -repo chaoss/augur -since 720h -comment-pages 2
-emberlens issue-abandoned -repo chaoss/augur -stale-for 720h -comment-pages 2
-emberlens issue-counts -repo chaoss/augur -since 720h
+emberlens issues -repo chaoss/augur
+emberlens issues -repo chaoss/augur -view new -since 720h -period week
+emberlens issues -repo chaoss/augur -view active -since 720h -period day
+emberlens issues -repo chaoss/augur -view closed -since 720h -period week -unit days
+emberlens issues -repo chaoss/augur -view backlog -stale-for 720h -sort age
+emberlens issues -repo chaoss/augur -view age
+emberlens issues -repo chaoss/augur -view resolution -since 1440h -unit days -sort duration
+emberlens issues -repo chaoss/augur -view response -since 720h -comment-pages 2 -unit hours
+emberlens issues -repo chaoss/augur -view participants -since 720h -comment-pages 2
+emberlens issues -repo chaoss/augur -view abandoned -stale-for 720h -comment-pages 2
 ```
 
 ## Issue Analytics Notes
@@ -177,11 +181,11 @@ emberlens issue-counts -repo chaoss/augur -since 720h
 The issue commands are intentionally conservative and terminal-friendly:
 
 - GitHub pull requests are excluded from issue analytics
-- `issues-active` uses the issue `updated_at` timestamp
-- `issue-response` measures first maintainer comment after issue creation
+- `issues -view active` uses the issue `updated_at` timestamp
+- `issues -view response` measures first maintainer comment after issue creation
 - GitHub maintainer response uses author associations like `OWNER`, `MEMBER`, and `COLLABORATOR`
 - GitLab maintainer response is inferred from project member access levels
-- `issue-abandoned` uses inactivity since the last issue update
+- `issues -view abandoned` uses inactivity since the last issue update
 
 ## Reports
 
@@ -202,7 +206,7 @@ Example report:
 ```yaml
 version: v2
 name: test-run-0
-command: "emberlens issues-new -repo chaoss/augur -since=720h -period=week"
+command: "emberlens issues -repo chaoss/augur -view=new -since=720h -period=week"
 repo: chaoss/augur
 status: success
 total: 5

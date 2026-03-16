@@ -55,6 +55,9 @@ type Runner struct {
 	Now      func() time.Time
 	commands map[string]Subcommand
 	order    []string
+
+	newGitHubClient func(token string) platform.Client
+	newGitLabClient func(token, baseURL string) platform.Client
 }
 
 // NewRunner creates a Runner with all built-in commands registered.
@@ -63,27 +66,36 @@ func NewRunner(stdout, stderr io.Writer) *Runner {
 		Stdout:   stdout,
 		Stderr:   stderr,
 		commands: map[string]Subcommand{},
+		newGitHubClient: func(token string) platform.Client {
+			return githubapi.NewClient(token)
+		},
+		newGitLabClient: func(token, baseURL string) platform.Client {
+			return gitlabapi.NewClient(token, baseURL)
+		},
 	}
 	r.Register(&contributorsCmd{})
 	r.Register(&activeContributorsCmd{})
 	r.Register(&maintainersCmd{})
-	r.Register(&issuesNewCmd{})
-	r.Register(&issuesActiveCmd{})
-	r.Register(&issuesClosedCmd{})
-	r.Register(&issueBacklogCmd{})
-	r.Register(&issueAgeCmd{})
-	r.Register(&issueResolutionCmd{})
-	r.Register(&issueResponseCmd{})
-	r.Register(&issueParticipantsCmd{})
-	r.Register(&issueAbandonedCmd{})
-	r.Register(&issueCountsCmd{})
+	r.Register(&issuesCmd{})
+	r.Register(newLegacyIssueAliasCmd("issues-new", "Show new issue volume over time", issueViewNew))
+	r.Register(newLegacyIssueAliasCmd("issues-active", "Show active issues by latest activity time", issueViewActive))
+	r.Register(newLegacyIssueAliasCmd("issues-closed", "Show closed issue volume over time", issueViewClosed))
+	r.Register(newLegacyIssueAliasCmd("issue-backlog", "List the oldest open issues in the backlog", issueViewBacklog))
+	r.Register(newLegacyIssueAliasCmd("issue-age", "Show open issue age distribution", issueViewAge))
+	r.Register(newLegacyIssueAliasCmd("issue-resolution", "Measure issue resolution duration for closed issues", issueViewResolution))
+	r.Register(newLegacyIssueAliasCmd("issue-response", "Measure time to first maintainer response on issues", issueViewResponse))
+	r.Register(newLegacyIssueAliasCmd("issue-participants", "Show issues with the most distinct participants", issueViewParticipants))
+	r.Register(newLegacyIssueAliasCmd("issue-abandoned", "Find stale open issues with no recent activity", issueViewAbandoned))
+	r.Register(newLegacyIssueAliasCmd("issue-counts", "Show open and closed issue counts", issueViewCounts))
 	return r
 }
 
 // Register adds a command. Use this to extend emberlens with custom commands.
 func (r *Runner) Register(cmd Subcommand) {
 	r.commands[cmd.Name()] = cmd
-	r.order = append(r.order, cmd.Name())
+	if !isHiddenCommand(cmd) {
+		r.order = append(r.order, cmd.Name())
+	}
 }
 
 func (r *Runner) helpText() string {
@@ -152,9 +164,9 @@ func (r *Runner) Run(args []string, envGitHubToken, envGitLabToken string) int {
 	var client platform.Client
 	switch strings.ToLower(common.platformName) {
 	case "github":
-		client = githubapi.NewClient(common.token)
+		client = r.newGitHubClient(common.token)
 	case "gitlab":
-		client = gitlabapi.NewClient(common.token, common.gitlabURL)
+		client = r.newGitLabClient(common.token, common.gitlabURL)
 	default:
 		return r.fail(fmt.Errorf("unsupported -platform=%q (expected github|gitlab)", common.platformName))
 	}
@@ -218,20 +230,20 @@ func (r *Runner) Run(args []string, envGitHubToken, envGitLabToken string) int {
 // ---------------------------------------------------------------------------
 
 type commonFlags struct {
-	repo            string
-	platformName    string
-	token           string
-	gitlabURL       string
-	output          string
-	verbose         bool
-	limit           int
-	profiles        bool
-	noColor         bool
-	timeout         time.Duration
-	noReport        bool
-	reportDir       string
-	envGitHubToken  string
-	envGitLabToken  string
+	repo           string
+	platformName   string
+	token          string
+	gitlabURL      string
+	output         string
+	verbose        bool
+	limit          int
+	profiles       bool
+	noColor        bool
+	timeout        time.Duration
+	noReport       bool
+	reportDir      string
+	envGitHubToken string
+	envGitLabToken string
 }
 
 func registerCommon(fs *flag.FlagSet, envGitHubToken, envGitLabToken string) *commonFlags {
@@ -327,6 +339,11 @@ func (r *Runner) now() time.Time {
 		return r.Now()
 	}
 	return time.Now()
+}
+
+func isHiddenCommand(cmd Subcommand) bool {
+	hidden, ok := cmd.(interface{ Hidden() bool })
+	return ok && hidden.Hidden()
 }
 
 func parseRepo(v string) (string, string, error) {

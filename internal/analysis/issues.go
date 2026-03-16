@@ -44,7 +44,7 @@ func BuildIssuesNewDataset(issues []platform.Issue, since time.Time, period stri
 		},
 		Records: pointsToRecords(points),
 		Hints: []string{
-			"Flags: -since 168h -period day|week|month -limit 0 -output json",
+			"Flags: -view new -since 168h -period day|week|month -limit 0 -output json",
 		},
 	}
 }
@@ -69,7 +69,7 @@ func BuildIssuesActiveDataset(issues []platform.Issue, since time.Time, period s
 		},
 		Records: pointsToRecords(points),
 		Hints: []string{
-			"Flags: -since 168h -period day|week|month -limit 0 -output json",
+			"Flags: -view active -since 168h -period day|week|month -limit 0 -output json",
 		},
 	}
 }
@@ -106,7 +106,7 @@ func BuildIssuesClosedDataset(issues []platform.Issue, since time.Time, period s
 		},
 		Records: pointsToRecords(points),
 		Hints: []string{
-			"Flags: -since 168h -period day|week|month -unit days|hours -output json",
+			"Flags: -view closed -since 168h -period day|week|month -unit days|hours -output json",
 		},
 	}
 }
@@ -146,7 +146,7 @@ func BuildIssueBacklogDataset(issues []platform.Issue, now time.Time, staleFor t
 		},
 		Records: backlogRecords(openIssues, now),
 		Hints: []string{
-			"Flags: -stale-for 720h -sort age|updated|comments -limit 0 -output json",
+			"Flags: -view backlog -stale-for 720h -sort age|updated|comments -limit 0 -output json",
 		},
 	}
 }
@@ -204,7 +204,7 @@ func BuildIssueAgeDataset(issues []platform.Issue, now time.Time) Dataset {
 		},
 		Records: records,
 		Hints: []string{
-			"Flags: -limit 0 -output json",
+			"Flags: -view age -limit 0 -output json",
 		},
 	}
 }
@@ -249,7 +249,7 @@ func BuildIssueResolutionDataset(issues []platform.Issue, since time.Time, unit 
 		},
 		Records: issueDurationRecords(rows, unit),
 		Hints: []string{
-			"Flags: -since 720h -unit days|hours -sort duration|closed -limit 0",
+			"Flags: -view resolution -since 720h -unit days|hours -sort duration|closed -limit 0",
 		},
 	}
 }
@@ -301,7 +301,7 @@ func BuildIssueResponseDataset(issues []platform.Issue, commentsByIssue map[int]
 		},
 		Records: issueResponseRecords(snapshots, unit),
 		Hints: []string{
-			"Flags: -since 720h -comment-pages 2 -unit days|hours -limit 0",
+			"Flags: -view response -since 720h -comment-pages 2 -unit days|hours -limit 0",
 		},
 	}
 }
@@ -342,7 +342,7 @@ func BuildIssueParticipantsDataset(issues []platform.Issue, commentsByIssue map[
 		},
 		Records: issueParticipantRecords(snapshots),
 		Hints: []string{
-			"Flags: -since 720h -comment-pages 2 -limit 0 -output json",
+			"Flags: -view participants -since 720h -comment-pages 2 -limit 0 -output json",
 		},
 	}
 }
@@ -388,7 +388,7 @@ func BuildIssueAbandonedDataset(issues []platform.Issue, commentsByIssue map[int
 		},
 		Records: abandonedIssueRecords(abandoned, now),
 		Hints: []string{
-			"Flags: -stale-for 720h -comment-pages 2 -limit 0 -output json",
+			"Flags: -view abandoned -stale-for 720h -comment-pages 2 -limit 0 -output json",
 		},
 	}
 }
@@ -399,6 +399,9 @@ func BuildIssueCountsDataset(issues []platform.Issue, since time.Time) Dataset {
 	newInWindow := 0
 	closedInWindow := 0
 	for _, issue := range issues {
+		if issue.PullRequest != nil {
+			continue
+		}
 		if strings.EqualFold(issue.State, "closed") {
 			closedCount++
 		} else {
@@ -430,7 +433,7 @@ func BuildIssueCountsDataset(issues []platform.Issue, since time.Time) Dataset {
 			{"metric": "Closed issues in window", "value": closedInWindow},
 		},
 		Hints: []string{
-			"Flags: -since 720h -output json",
+			"Flags: -view counts -since 720h -output json",
 		},
 	}
 }

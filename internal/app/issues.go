@@ -3,6 +3,7 @@ package app
 import (
 	"flag"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -10,352 +11,350 @@ import (
 	"github.com/officialasishkumar/emberlens/internal/platform"
 )
 
-type issuesNewCmd struct {
-	since    time.Duration
-	period   string
-	maxPages int
+const (
+	issueViewNew          = "new"
+	issueViewActive       = "active"
+	issueViewClosed       = "closed"
+	issueViewBacklog      = "backlog"
+	issueViewAge          = "age"
+	issueViewResolution   = "resolution"
+	issueViewResponse     = "response"
+	issueViewParticipants = "participants"
+	issueViewAbandoned    = "abandoned"
+	issueViewCounts       = "counts"
+)
+
+type issueViewSpec struct {
+	name        string
+	description string
 }
 
-func (c *issuesNewCmd) Name() string { return "issues-new" }
-func (c *issuesNewCmd) Description() string {
-	return "Show new issue volume over time"
+var issueViewSpecs = []issueViewSpec{
+	{name: issueViewCounts, description: "open and closed issue inventory plus recent totals"},
+	{name: issueViewNew, description: "new issue volume over time"},
+	{name: issueViewActive, description: "issue activity over time based on last update"},
+	{name: issueViewClosed, description: "closed issue volume plus average resolution summary"},
+	{name: issueViewBacklog, description: "oldest open issues in the backlog"},
+	{name: issueViewAge, description: "open issue age distribution"},
+	{name: issueViewResolution, description: "resolution duration for recently closed issues"},
+	{name: issueViewResponse, description: "first maintainer response latency"},
+	{name: issueViewParticipants, description: "issues with the most distinct participants"},
+	{name: issueViewAbandoned, description: "stale open issues with no recent activity"},
 }
 
-func (c *issuesNewCmd) RegisterFlags(fs *flag.FlagSet) {
-	registerIssueWindowFlags(fs, &c.since, &c.period, &c.maxPages)
-}
-
-func (c *issuesNewCmd) Execute(rc *RunContext) (analysis.Dataset, error) {
-	period, err := normalizePeriod(c.period)
-	if err != nil {
-		return analysis.Dataset{}, err
-	}
-	issues, err := rc.Client.ListIssues(rc.Ctx, rc.Owner, rc.Repo, platform.IssueListOptions{
-		MaxPages:  c.maxPages,
-		State:     "all",
-		Sort:      "created",
-		Direction: "desc",
-	})
-	if err != nil {
-		return analysis.Dataset{}, err
-	}
-	return analysis.BuildIssuesNewDataset(issues, rc.Now.Add(-c.since), period), nil
-}
-
-type issuesActiveCmd struct {
-	since    time.Duration
-	period   string
-	maxPages int
-}
-
-func (c *issuesActiveCmd) Name() string { return "issues-active" }
-func (c *issuesActiveCmd) Description() string {
-	return "Show active issues by latest activity time"
-}
-
-func (c *issuesActiveCmd) RegisterFlags(fs *flag.FlagSet) {
-	registerIssueWindowFlags(fs, &c.since, &c.period, &c.maxPages)
-}
-
-func (c *issuesActiveCmd) Execute(rc *RunContext) (analysis.Dataset, error) {
-	period, err := normalizePeriod(c.period)
-	if err != nil {
-		return analysis.Dataset{}, err
-	}
-	issues, err := rc.Client.ListIssues(rc.Ctx, rc.Owner, rc.Repo, platform.IssueListOptions{
-		MaxPages:  c.maxPages,
-		State:     "all",
-		Sort:      "updated",
-		Direction: "desc",
-	})
-	if err != nil {
-		return analysis.Dataset{}, err
-	}
-	return analysis.BuildIssuesActiveDataset(issues, rc.Now.Add(-c.since), period), nil
-}
-
-type issuesClosedCmd struct {
-	since    time.Duration
-	period   string
-	maxPages int
-	unit     string
-}
-
-func (c *issuesClosedCmd) Name() string { return "issues-closed" }
-func (c *issuesClosedCmd) Description() string {
-	return "Show closed issue volume over time"
-}
-
-func (c *issuesClosedCmd) RegisterFlags(fs *flag.FlagSet) {
-	registerIssueWindowFlags(fs, &c.since, &c.period, &c.maxPages)
-	fs.StringVar(&c.unit, "unit", "days", "duration unit: days|hours")
-}
-
-func (c *issuesClosedCmd) Execute(rc *RunContext) (analysis.Dataset, error) {
-	period, err := normalizePeriod(c.period)
-	if err != nil {
-		return analysis.Dataset{}, err
-	}
-	unit, err := normalizeDurationUnit(c.unit)
-	if err != nil {
-		return analysis.Dataset{}, err
-	}
-	issues, err := rc.Client.ListIssues(rc.Ctx, rc.Owner, rc.Repo, platform.IssueListOptions{
-		MaxPages:  c.maxPages,
-		State:     "closed",
-		Sort:      "updated",
-		Direction: "desc",
-	})
-	if err != nil {
-		return analysis.Dataset{}, err
-	}
-	return analysis.BuildIssuesClosedDataset(issues, rc.Now.Add(-c.since), period, unit), nil
-}
-
-type issueBacklogCmd struct {
-	maxPages int
-	staleFor time.Duration
-	sort     string
-}
-
-func (c *issueBacklogCmd) Name() string { return "issue-backlog" }
-func (c *issueBacklogCmd) Description() string {
-	return "List the oldest open issues in the backlog"
-}
-
-func (c *issueBacklogCmd) RegisterFlags(fs *flag.FlagSet) {
-	fs.IntVar(&c.maxPages, "max-pages", 5, "max issue pages to fetch (100 per page, 0 = all)")
-	fs.DurationVar(&c.staleFor, "stale-for", 30*24*time.Hour, "mark issues as stale after this age since last update")
-	fs.StringVar(&c.sort, "sort", "age", "sort by: age|updated|comments")
-}
-
-func (c *issueBacklogCmd) Execute(rc *RunContext) (analysis.Dataset, error) {
-	sortBy, err := normalizeIssueBacklogSort(c.sort)
-	if err != nil {
-		return analysis.Dataset{}, err
-	}
-	issues, err := rc.Client.ListIssues(rc.Ctx, rc.Owner, rc.Repo, platform.IssueListOptions{
-		MaxPages:  c.maxPages,
-		State:     "open",
-		Sort:      "created",
-		Direction: "asc",
-	})
-	if err != nil {
-		return analysis.Dataset{}, err
-	}
-	return analysis.BuildIssueBacklogDataset(issues, rc.Now, c.staleFor, sortBy), nil
-}
-
-type issueAgeCmd struct {
-	maxPages int
-}
-
-func (c *issueAgeCmd) Name() string { return "issue-age" }
-func (c *issueAgeCmd) Description() string {
-	return "Show open issue age distribution"
-}
-
-func (c *issueAgeCmd) RegisterFlags(fs *flag.FlagSet) {
-	fs.IntVar(&c.maxPages, "max-pages", 5, "max issue pages to fetch (100 per page, 0 = all)")
-}
-
-func (c *issueAgeCmd) Execute(rc *RunContext) (analysis.Dataset, error) {
-	issues, err := rc.Client.ListIssues(rc.Ctx, rc.Owner, rc.Repo, platform.IssueListOptions{
-		MaxPages:  c.maxPages,
-		State:     "open",
-		Sort:      "created",
-		Direction: "asc",
-	})
-	if err != nil {
-		return analysis.Dataset{}, err
-	}
-	return analysis.BuildIssueAgeDataset(issues, rc.Now), nil
-}
-
-type issueResolutionCmd struct {
-	since    time.Duration
-	maxPages int
-	unit     string
-	sort     string
-}
-
-func (c *issueResolutionCmd) Name() string { return "issue-resolution" }
-func (c *issueResolutionCmd) Description() string {
-	return "Measure issue resolution duration for closed issues"
-}
-
-func (c *issueResolutionCmd) RegisterFlags(fs *flag.FlagSet) {
-	fs.DurationVar(&c.since, "since", 30*24*time.Hour, "look back window for closed issues")
-	fs.IntVar(&c.maxPages, "max-pages", 5, "max issue pages to fetch (100 per page, 0 = all)")
-	fs.StringVar(&c.unit, "unit", "days", "duration unit: days|hours")
-	fs.StringVar(&c.sort, "sort", "duration", "sort by: duration|closed")
-}
-
-func (c *issueResolutionCmd) Execute(rc *RunContext) (analysis.Dataset, error) {
-	unit, err := normalizeDurationUnit(c.unit)
-	if err != nil {
-		return analysis.Dataset{}, err
-	}
-	sortBy, err := normalizeResolutionSort(c.sort)
-	if err != nil {
-		return analysis.Dataset{}, err
-	}
-	issues, err := rc.Client.ListIssues(rc.Ctx, rc.Owner, rc.Repo, platform.IssueListOptions{
-		MaxPages:  c.maxPages,
-		State:     "closed",
-		Sort:      "updated",
-		Direction: "desc",
-	})
-	if err != nil {
-		return analysis.Dataset{}, err
-	}
-	return analysis.BuildIssueResolutionDataset(issues, rc.Now.Add(-c.since), unit, sortBy), nil
-}
-
-type issueResponseCmd struct {
-	since       time.Duration
-	maxPages    int
-	commentPages int
-	unit        string
-}
-
-func (c *issueResponseCmd) Name() string { return "issue-response" }
-func (c *issueResponseCmd) Description() string {
-	return "Measure time to first maintainer response on issues"
-}
-
-func (c *issueResponseCmd) RegisterFlags(fs *flag.FlagSet) {
-	fs.DurationVar(&c.since, "since", 30*24*time.Hour, "look back window for issues")
-	fs.IntVar(&c.maxPages, "max-pages", 5, "max issue pages to fetch (100 per page, 0 = all)")
-	fs.IntVar(&c.commentPages, "comment-pages", 1, "max comment pages to fetch per issue (100 per page, 0 = all)")
-	fs.StringVar(&c.unit, "unit", "days", "duration unit: days|hours")
-}
-
-func (c *issueResponseCmd) Execute(rc *RunContext) (analysis.Dataset, error) {
-	unit, err := normalizeDurationUnit(c.unit)
-	if err != nil {
-		return analysis.Dataset{}, err
-	}
-	issues, err := rc.Client.ListIssues(rc.Ctx, rc.Owner, rc.Repo, platform.IssueListOptions{
-		MaxPages:  c.maxPages,
-		State:     "all",
-		Sort:      "created",
-		Direction: "desc",
-	})
-	if err != nil {
-		return analysis.Dataset{}, err
-	}
-	windowStart := rc.Now.Add(-c.since)
-	filtered := filterIssueWindow(issues, windowStart)
-	comments, err := fetchIssueComments(rc, filtered, c.commentPages)
-	if err != nil {
-		return analysis.Dataset{}, err
-	}
-	return analysis.BuildIssueResponseDataset(filtered, comments, windowStart, unit), nil
-}
-
-type issueParticipantsCmd struct {
+type issuesConfig struct {
+	view         string
 	since        time.Duration
+	period       string
 	maxPages     int
-	commentPages int
-}
-
-func (c *issueParticipantsCmd) Name() string { return "issue-participants" }
-func (c *issueParticipantsCmd) Description() string {
-	return "Show issues with the most distinct participants"
-}
-
-func (c *issueParticipantsCmd) RegisterFlags(fs *flag.FlagSet) {
-	fs.DurationVar(&c.since, "since", 30*24*time.Hour, "look back window for issues")
-	fs.IntVar(&c.maxPages, "max-pages", 5, "max issue pages to fetch (100 per page, 0 = all)")
-	fs.IntVar(&c.commentPages, "comment-pages", 1, "max comment pages to fetch per issue (100 per page, 0 = all)")
-}
-
-func (c *issueParticipantsCmd) Execute(rc *RunContext) (analysis.Dataset, error) {
-	issues, err := rc.Client.ListIssues(rc.Ctx, rc.Owner, rc.Repo, platform.IssueListOptions{
-		MaxPages:  c.maxPages,
-		State:     "all",
-		Sort:      "updated",
-		Direction: "desc",
-	})
-	if err != nil {
-		return analysis.Dataset{}, err
-	}
-	windowStart := rc.Now.Add(-c.since)
-	filtered := filterIssueWindow(issues, windowStart)
-	comments, err := fetchIssueComments(rc, filtered, c.commentPages)
-	if err != nil {
-		return analysis.Dataset{}, err
-	}
-	return analysis.BuildIssueParticipantsDataset(filtered, comments, windowStart), nil
-}
-
-type issueAbandonedCmd struct {
-	maxPages     int
-	commentPages int
+	unit         string
+	sort         string
 	staleFor     time.Duration
+	commentPages int
 }
 
-func (c *issueAbandonedCmd) Name() string { return "issue-abandoned" }
-func (c *issueAbandonedCmd) Description() string {
-	return "Find stale open issues with no recent activity"
+func defaultIssuesConfig(defaultView string) issuesConfig {
+	return issuesConfig{
+		view:         defaultView,
+		since:        30 * 24 * time.Hour,
+		period:       "week",
+		maxPages:     5,
+		unit:         "days",
+		staleFor:     30 * 24 * time.Hour,
+		commentPages: 1,
+	}
 }
 
-func (c *issueAbandonedCmd) RegisterFlags(fs *flag.FlagSet) {
-	fs.IntVar(&c.maxPages, "max-pages", 5, "max issue pages to fetch (100 per page, 0 = all)")
-	fs.IntVar(&c.commentPages, "comment-pages", 1, "max comment pages to fetch per issue (100 per page, 0 = all)")
-	fs.DurationVar(&c.staleFor, "stale-for", 30*24*time.Hour, "consider issues abandoned after this long without updates")
+type issuesCmd struct {
+	cfg issuesConfig
 }
 
-func (c *issueAbandonedCmd) Execute(rc *RunContext) (analysis.Dataset, error) {
-	issues, err := rc.Client.ListIssues(rc.Ctx, rc.Owner, rc.Repo, platform.IssueListOptions{
-		MaxPages:  c.maxPages,
-		State:     "open",
-		Sort:      "updated",
-		Direction: "asc",
-	})
+func (c *issuesCmd) Name() string { return "issues" }
+func (c *issuesCmd) Description() string {
+	return "Issue analytics selected with -view"
+}
+
+func (c *issuesCmd) RegisterFlags(fs *flag.FlagSet) {
+	c.cfg = defaultIssuesConfig(issueViewCounts)
+	registerIssuesAggregateFlags(fs, &c.cfg)
+	fs.Usage = func() {
+		writeIssuesUsage(fs.Output(), fs.Name())
+		fs.PrintDefaults()
+	}
+}
+
+func (c *issuesCmd) Execute(rc *RunContext) (analysis.Dataset, error) {
+	return executeIssuesView(c.cfg, rc)
+}
+
+type legacyIssueAliasCmd struct {
+	name        string
+	description string
+	view        string
+	cfg         issuesConfig
+}
+
+func newLegacyIssueAliasCmd(name, description, view string) *legacyIssueAliasCmd {
+	return &legacyIssueAliasCmd{
+		name:        name,
+		description: description,
+		view:        view,
+	}
+}
+
+func (c *legacyIssueAliasCmd) Hidden() bool { return true }
+func (c *legacyIssueAliasCmd) Name() string { return c.name }
+func (c *legacyIssueAliasCmd) Description() string {
+	return c.description
+}
+
+func (c *legacyIssueAliasCmd) RegisterFlags(fs *flag.FlagSet) {
+	c.cfg = defaultIssuesConfig(c.view)
+	registerIssueFlagsForView(fs, &c.cfg, c.view)
+}
+
+func (c *legacyIssueAliasCmd) Execute(rc *RunContext) (analysis.Dataset, error) {
+	cfg := c.cfg
+	cfg.view = c.view
+	return executeIssuesView(cfg, rc)
+}
+
+func registerIssuesAggregateFlags(fs *flag.FlagSet, cfg *issuesConfig) {
+	fs.StringVar(&cfg.view, "view", cfg.view, "issue view: counts|new|active|closed|backlog|age|resolution|response|participants|abandoned")
+	fs.DurationVar(&cfg.since, "since", cfg.since, "look back window for issue analytics")
+	fs.StringVar(&cfg.period, "period", cfg.period, "bucket period for new|active|closed views: day|week|month")
+	fs.IntVar(&cfg.maxPages, "max-pages", cfg.maxPages, "max issue pages to fetch (100 per page, 0 = all)")
+	fs.StringVar(&cfg.unit, "unit", cfg.unit, "duration unit for closed|resolution|response views: days|hours")
+	fs.StringVar(&cfg.sort, "sort", "", "sort order for backlog|resolution views")
+	fs.DurationVar(&cfg.staleFor, "stale-for", cfg.staleFor, "staleness threshold for backlog|abandoned views")
+	fs.IntVar(&cfg.commentPages, "comment-pages", cfg.commentPages, "max comment pages to fetch per issue for response|participants|abandoned views (100 per page, 0 = all)")
+}
+
+func registerIssueFlagsForView(fs *flag.FlagSet, cfg *issuesConfig, view string) {
+	switch view {
+	case issueViewNew, issueViewActive:
+		registerIssueWindowFlags(fs, &cfg.since, &cfg.period, &cfg.maxPages)
+	case issueViewClosed:
+		registerIssueWindowFlags(fs, &cfg.since, &cfg.period, &cfg.maxPages)
+		fs.StringVar(&cfg.unit, "unit", cfg.unit, "duration unit: days|hours")
+	case issueViewBacklog:
+		fs.IntVar(&cfg.maxPages, "max-pages", cfg.maxPages, "max issue pages to fetch (100 per page, 0 = all)")
+		fs.DurationVar(&cfg.staleFor, "stale-for", cfg.staleFor, "mark issues as stale after this age since last update")
+		fs.StringVar(&cfg.sort, "sort", "age", "sort by: age|updated|comments")
+	case issueViewAge:
+		fs.IntVar(&cfg.maxPages, "max-pages", cfg.maxPages, "max issue pages to fetch (100 per page, 0 = all)")
+	case issueViewResolution:
+		fs.DurationVar(&cfg.since, "since", cfg.since, "look back window for closed issues")
+		fs.IntVar(&cfg.maxPages, "max-pages", cfg.maxPages, "max issue pages to fetch (100 per page, 0 = all)")
+		fs.StringVar(&cfg.unit, "unit", cfg.unit, "duration unit: days|hours")
+		fs.StringVar(&cfg.sort, "sort", "duration", "sort by: duration|closed")
+	case issueViewResponse:
+		fs.DurationVar(&cfg.since, "since", cfg.since, "look back window for issues")
+		fs.IntVar(&cfg.maxPages, "max-pages", cfg.maxPages, "max issue pages to fetch (100 per page, 0 = all)")
+		fs.IntVar(&cfg.commentPages, "comment-pages", cfg.commentPages, "max comment pages to fetch per issue (100 per page, 0 = all)")
+		fs.StringVar(&cfg.unit, "unit", cfg.unit, "duration unit: days|hours")
+	case issueViewParticipants:
+		fs.DurationVar(&cfg.since, "since", cfg.since, "look back window for issues")
+		fs.IntVar(&cfg.maxPages, "max-pages", cfg.maxPages, "max issue pages to fetch (100 per page, 0 = all)")
+		fs.IntVar(&cfg.commentPages, "comment-pages", cfg.commentPages, "max comment pages to fetch per issue (100 per page, 0 = all)")
+	case issueViewAbandoned:
+		fs.IntVar(&cfg.maxPages, "max-pages", cfg.maxPages, "max issue pages to fetch (100 per page, 0 = all)")
+		fs.IntVar(&cfg.commentPages, "comment-pages", cfg.commentPages, "max comment pages to fetch per issue (100 per page, 0 = all)")
+		fs.DurationVar(&cfg.staleFor, "stale-for", cfg.staleFor, "consider issues abandoned after this long without updates")
+	case issueViewCounts:
+		fs.DurationVar(&cfg.since, "since", cfg.since, "look back window used for recent count summaries")
+		fs.IntVar(&cfg.maxPages, "max-pages", cfg.maxPages, "max issue pages to fetch (100 per page, 0 = all)")
+	}
+}
+
+func writeIssuesUsage(w io.Writer, name string) {
+	fmt.Fprintf(w, "Usage:\n  emberlens %s [flags]\n\n", name)
+	io.WriteString(w, "Views:\n")
+	for _, spec := range issueViewSpecs {
+		fmt.Fprintf(w, "  %-13s %s\n", spec.name, spec.description)
+	}
+	io.WriteString(w, "\nFlags:\n")
+}
+
+func executeIssuesView(cfg issuesConfig, rc *RunContext) (analysis.Dataset, error) {
+	view, err := normalizeIssueView(cfg.view)
 	if err != nil {
 		return analysis.Dataset{}, err
 	}
-	comments, err := fetchIssueComments(rc, issues, c.commentPages)
+	sortBy, err := normalizeIssueSort(view, cfg.sort)
 	if err != nil {
 		return analysis.Dataset{}, err
 	}
-	return analysis.BuildIssueAbandonedDataset(issues, comments, rc.Now, c.staleFor), nil
-}
 
-type issueCountsCmd struct {
-	since    time.Duration
-	maxPages int
-}
-
-func (c *issueCountsCmd) Name() string { return "issue-counts" }
-func (c *issueCountsCmd) Description() string {
-	return "Show open and closed issue counts"
-}
-
-func (c *issueCountsCmd) RegisterFlags(fs *flag.FlagSet) {
-	fs.DurationVar(&c.since, "since", 30*24*time.Hour, "look back window used for recent count summaries")
-	fs.IntVar(&c.maxPages, "max-pages", 5, "max issue pages to fetch (100 per page, 0 = all)")
-}
-
-func (c *issueCountsCmd) Execute(rc *RunContext) (analysis.Dataset, error) {
-	issues, err := rc.Client.ListIssues(rc.Ctx, rc.Owner, rc.Repo, platform.IssueListOptions{
-		MaxPages:  c.maxPages,
-		State:     "all",
-		Sort:      "updated",
-		Direction: "desc",
-	})
-	if err != nil {
-		return analysis.Dataset{}, err
+	switch view {
+	case issueViewNew:
+		period, err := normalizePeriod(cfg.period)
+		if err != nil {
+			return analysis.Dataset{}, err
+		}
+		issues, err := rc.Client.ListIssues(rc.Ctx, rc.Owner, rc.Repo, platform.IssueListOptions{
+			MaxPages:  cfg.maxPages,
+			State:     "all",
+			Sort:      "created",
+			Direction: "desc",
+		})
+		if err != nil {
+			return analysis.Dataset{}, err
+		}
+		return analysis.BuildIssuesNewDataset(issues, rc.Now.Add(-cfg.since), period), nil
+	case issueViewActive:
+		period, err := normalizePeriod(cfg.period)
+		if err != nil {
+			return analysis.Dataset{}, err
+		}
+		issues, err := rc.Client.ListIssues(rc.Ctx, rc.Owner, rc.Repo, platform.IssueListOptions{
+			MaxPages:  cfg.maxPages,
+			State:     "all",
+			Sort:      "updated",
+			Direction: "desc",
+		})
+		if err != nil {
+			return analysis.Dataset{}, err
+		}
+		return analysis.BuildIssuesActiveDataset(issues, rc.Now.Add(-cfg.since), period), nil
+	case issueViewClosed:
+		period, err := normalizePeriod(cfg.period)
+		if err != nil {
+			return analysis.Dataset{}, err
+		}
+		unit, err := normalizeDurationUnit(cfg.unit)
+		if err != nil {
+			return analysis.Dataset{}, err
+		}
+		issues, err := rc.Client.ListIssues(rc.Ctx, rc.Owner, rc.Repo, platform.IssueListOptions{
+			MaxPages:  cfg.maxPages,
+			State:     "closed",
+			Sort:      "updated",
+			Direction: "desc",
+		})
+		if err != nil {
+			return analysis.Dataset{}, err
+		}
+		return analysis.BuildIssuesClosedDataset(issues, rc.Now.Add(-cfg.since), period, unit), nil
+	case issueViewBacklog:
+		issues, err := rc.Client.ListIssues(rc.Ctx, rc.Owner, rc.Repo, platform.IssueListOptions{
+			MaxPages:  cfg.maxPages,
+			State:     "open",
+			Sort:      "created",
+			Direction: "asc",
+		})
+		if err != nil {
+			return analysis.Dataset{}, err
+		}
+		return analysis.BuildIssueBacklogDataset(issues, rc.Now, cfg.staleFor, sortBy), nil
+	case issueViewAge:
+		issues, err := rc.Client.ListIssues(rc.Ctx, rc.Owner, rc.Repo, platform.IssueListOptions{
+			MaxPages:  cfg.maxPages,
+			State:     "open",
+			Sort:      "created",
+			Direction: "asc",
+		})
+		if err != nil {
+			return analysis.Dataset{}, err
+		}
+		return analysis.BuildIssueAgeDataset(issues, rc.Now), nil
+	case issueViewResolution:
+		unit, err := normalizeDurationUnit(cfg.unit)
+		if err != nil {
+			return analysis.Dataset{}, err
+		}
+		issues, err := rc.Client.ListIssues(rc.Ctx, rc.Owner, rc.Repo, platform.IssueListOptions{
+			MaxPages:  cfg.maxPages,
+			State:     "closed",
+			Sort:      "updated",
+			Direction: "desc",
+		})
+		if err != nil {
+			return analysis.Dataset{}, err
+		}
+		return analysis.BuildIssueResolutionDataset(issues, rc.Now.Add(-cfg.since), unit, sortBy), nil
+	case issueViewResponse:
+		unit, err := normalizeDurationUnit(cfg.unit)
+		if err != nil {
+			return analysis.Dataset{}, err
+		}
+		issues, err := rc.Client.ListIssues(rc.Ctx, rc.Owner, rc.Repo, platform.IssueListOptions{
+			MaxPages:  cfg.maxPages,
+			State:     "all",
+			Sort:      "created",
+			Direction: "desc",
+		})
+		if err != nil {
+			return analysis.Dataset{}, err
+		}
+		windowStart := rc.Now.Add(-cfg.since)
+		filtered := filterIssueWindow(issues, windowStart)
+		comments, err := fetchIssueComments(rc, filtered, cfg.commentPages)
+		if err != nil {
+			return analysis.Dataset{}, err
+		}
+		return analysis.BuildIssueResponseDataset(filtered, comments, windowStart, unit), nil
+	case issueViewParticipants:
+		issues, err := rc.Client.ListIssues(rc.Ctx, rc.Owner, rc.Repo, platform.IssueListOptions{
+			MaxPages:  cfg.maxPages,
+			State:     "all",
+			Sort:      "updated",
+			Direction: "desc",
+		})
+		if err != nil {
+			return analysis.Dataset{}, err
+		}
+		windowStart := rc.Now.Add(-cfg.since)
+		filtered := filterIssueWindow(issues, windowStart)
+		comments, err := fetchIssueComments(rc, filtered, cfg.commentPages)
+		if err != nil {
+			return analysis.Dataset{}, err
+		}
+		return analysis.BuildIssueParticipantsDataset(filtered, comments, windowStart), nil
+	case issueViewAbandoned:
+		issues, err := rc.Client.ListIssues(rc.Ctx, rc.Owner, rc.Repo, platform.IssueListOptions{
+			MaxPages:  cfg.maxPages,
+			State:     "open",
+			Sort:      "updated",
+			Direction: "asc",
+		})
+		if err != nil {
+			return analysis.Dataset{}, err
+		}
+		comments, err := fetchIssueComments(rc, issues, cfg.commentPages)
+		if err != nil {
+			return analysis.Dataset{}, err
+		}
+		return analysis.BuildIssueAbandonedDataset(issues, comments, rc.Now, cfg.staleFor), nil
+	case issueViewCounts:
+		issues, err := rc.Client.ListIssues(rc.Ctx, rc.Owner, rc.Repo, platform.IssueListOptions{
+			MaxPages:  cfg.maxPages,
+			State:     "all",
+			Sort:      "updated",
+			Direction: "desc",
+		})
+		if err != nil {
+			return analysis.Dataset{}, err
+		}
+		return analysis.BuildIssueCountsDataset(issues, rc.Now.Add(-cfg.since)), nil
+	default:
+		return analysis.Dataset{}, fmt.Errorf("unsupported -view=%q", cfg.view)
 	}
-	return analysis.BuildIssueCountsDataset(issues, rc.Now.Add(-c.since)), nil
 }
 
 func registerIssueWindowFlags(fs *flag.FlagSet, since *time.Duration, period *string, maxPages *int) {
 	fs.DurationVar(since, "since", 30*24*time.Hour, "look back window for issue analytics")
 	fs.StringVar(period, "period", "week", "bucket period: day|week|month")
 	fs.IntVar(maxPages, "max-pages", 5, "max issue pages to fetch (100 per page, 0 = all)")
+}
+
+func normalizeIssueView(v string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case issueViewNew, issueViewActive, issueViewClosed, issueViewBacklog, issueViewAge, issueViewResolution, issueViewResponse, issueViewParticipants, issueViewAbandoned, issueViewCounts:
+		return strings.ToLower(strings.TrimSpace(v)), nil
+	default:
+		return "", fmt.Errorf("unsupported -view=%q (expected counts|new|active|closed|backlog|age|resolution|response|participants|abandoned)", v)
+	}
 }
 
 func normalizePeriod(v string) (string, error) {
@@ -393,6 +392,27 @@ func normalizeResolutionSort(v string) (string, error) {
 		return strings.ToLower(strings.TrimSpace(v)), nil
 	default:
 		return "", fmt.Errorf("unsupported -sort=%q (expected duration|closed)", v)
+	}
+}
+
+func normalizeIssueSort(view, sort string) (string, error) {
+	sort = strings.TrimSpace(sort)
+	switch view {
+	case issueViewBacklog:
+		if sort == "" {
+			sort = "age"
+		}
+		return normalizeIssueBacklogSort(sort)
+	case issueViewResolution:
+		if sort == "" {
+			sort = "duration"
+		}
+		return normalizeResolutionSort(sort)
+	default:
+		if sort != "" {
+			return "", fmt.Errorf("-sort is only supported with -view=%s or -view=%s", issueViewBacklog, issueViewResolution)
+		}
+		return "", nil
 	}
 }
 
