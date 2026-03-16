@@ -127,6 +127,7 @@ Examples:
 emberlens contributors -repo golang/go
 emberlens issues -repo chaoss/augur -view new -since 720h -period week
 emberlens issues -repo chaoss/augur -view backlog -stale-for 1440h
+emberlens discover -repo chaoss/augur -view untriaged -min-age 168h
 ```
 
 To reveal more detail:
@@ -135,6 +136,7 @@ To reveal more detail:
 emberlens issues -repo chaoss/augur -view resolution -verbose -limit 10
 emberlens issues -repo chaoss/augur -view participants -output json | jq
 emberlens maintainers -repo keploy/keploy -signals -profiles -limit 0
+emberlens discover -repo chaoss/augur -view hotspots -since 336h -min-comments 5 -min-participants 3
 ```
 
 Key behavior:
@@ -189,6 +191,14 @@ emberlens issues -repo chaoss/augur -view participants -since 720h -comment-page
 emberlens issues -repo chaoss/augur -view abandoned -stale-for 720h -comment-pages 2
 ```
 
+### Discovery
+
+```bash
+emberlens discover -repo chaoss/augur -view untriaged -min-age 168h
+emberlens discover -repo chaoss/augur -view needs-maintainer -min-age 168h -min-comments 3 -min-participants 3
+emberlens discover -repo chaoss/augur -view hotspots -since 336h -min-comments 5 -min-participants 3
+```
+
 ## Issue Analytics Notes
 
 The issue commands are intentionally conservative and terminal-friendly:
@@ -199,6 +209,15 @@ The issue commands are intentionally conservative and terminal-friendly:
 - GitHub maintainer response uses author associations like `OWNER`, `MEMBER`, and `COLLABORATOR`
 - GitLab maintainer response is inferred from project member access levels
 - `issues -view abandoned` uses inactivity since the last issue update
+
+## Discovery Analytics Notes
+
+The discover command is designed for patterns that usually take multiple manual sorts and filters to uncover:
+
+- `discover -view untriaged` highlights open issues past a minimum age with no maintainer response
+- `discover -view needs-maintainer` filters for discussion-heavy open issues that still lack maintainer engagement
+- `discover -view hotspots` ranks recently updated open issues by participation and comment concentration
+- GitHub and GitLab maintainer detection uses the same author-association logic as issue response analytics
 
 ## Reports
 
