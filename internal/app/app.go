@@ -77,6 +77,7 @@ func NewRunner(stdout, stderr io.Writer) *Runner {
 	r.Register(&activeContributorsCmd{})
 	r.Register(&maintainersCmd{})
 	r.Register(&issuesCmd{})
+	r.Register(&discoverCmd{})
 	r.Register(newLegacyIssueAliasCmd("issues-new", "Show new issue volume over time", issueViewNew))
 	r.Register(newLegacyIssueAliasCmd("issues-active", "Show active issues by latest activity time", issueViewActive))
 	r.Register(newLegacyIssueAliasCmd("issues-closed", "Show closed issue volume over time", issueViewClosed))
