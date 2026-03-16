@@ -9,10 +9,11 @@ It is designed for terminal-first usage:
 - extra detail only when flags ask for it
 - flat per-run YAML snapshots under `test-run-N/`
 
-Today Emberlens covers two analytics domains:
+Today Emberlens covers three analytics domains:
 
 - people analytics
 - issue analytics
+- discovery analytics
 
 ## What You Can Do
 
@@ -42,6 +43,18 @@ Today Emberlens covers two analytics domains:
 | `response` | first maintainer response latency |
 | `participants` | issues with the most distinct participants |
 | `abandoned` | stale open issues with no recent activity |
+
+### Discovery analytics
+
+| Command | What it shows | Command flags |
+|---|---|---|
+| `discover` | issue patterns that are hard to spot directly in the web UI | `-view`, `-since`, `-min-age`, `-min-comments`, `-min-participants`, `-sort`, `-comment-pages`, `-max-pages` |
+
+| `-view` value | What it shows |
+|---|---|
+| `untriaged` | open issues old enough to deserve triage but still without maintainer response |
+| `needs-maintainer` | open issues with meaningful discussion but still no maintainer engagement |
+| `hotspots` | recently active open issues with concentrated discussion and participants |
 
 ## Platform Support
 
