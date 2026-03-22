@@ -125,18 +125,18 @@ Examples:
 
 ```bash
 emberlens contributors -repo golang/go
-emberlens issues -repo chaoss/augur -view new -since 720h -period week
-emberlens issues -repo chaoss/augur -view backlog -stale-for 1440h
-emberlens discover -repo chaoss/augur -view untriaged -min-age 168h
+emberlens issues -repo kubernetes/kubernetes -view new -since 720h -period week
+emberlens issues -repo kubernetes/kubernetes -view backlog -stale-for 1440h
+emberlens discover -repo kubernetes/kubernetes -view untriaged -min-age 168h
 ```
 
 To reveal more detail:
 
 ```bash
-emberlens issues -repo chaoss/augur -view resolution -verbose -limit 10
-emberlens issues -repo chaoss/augur -view participants -output json | jq
+emberlens issues -repo kubernetes/kubernetes -view resolution -verbose -limit 10
+emberlens issues -repo kubernetes/kubernetes -view participants -output json | jq
 emberlens maintainers -repo keploy/keploy -signals -profiles -limit 0
-emberlens discover -repo chaoss/augur -view hotspots -since 336h -min-comments 5 -min-participants 3
+emberlens discover -repo kubernetes/kubernetes -view hotspots -since 336h -min-comments 5 -min-participants 3
 ```
 
 Key behavior:
@@ -179,24 +179,24 @@ emberlens maintainers -repo keploy/keploy -signals -signal-pages 5
 ### Issues
 
 ```bash
-emberlens issues -repo chaoss/augur
-emberlens issues -repo chaoss/augur -view new -since 720h -period week
-emberlens issues -repo chaoss/augur -view active -since 720h -period day
-emberlens issues -repo chaoss/augur -view closed -since 720h -period week -unit days
-emberlens issues -repo chaoss/augur -view backlog -stale-for 720h -sort age
-emberlens issues -repo chaoss/augur -view age
-emberlens issues -repo chaoss/augur -view resolution -since 1440h -unit days -sort duration
-emberlens issues -repo chaoss/augur -view response -since 720h -comment-pages 2 -unit hours
-emberlens issues -repo chaoss/augur -view participants -since 720h -comment-pages 2
-emberlens issues -repo chaoss/augur -view abandoned -stale-for 720h -comment-pages 2
+emberlens issues -repo kubernetes/kubernetes
+emberlens issues -repo kubernetes/kubernetes -view new -since 720h -period week
+emberlens issues -repo kubernetes/kubernetes -view active -since 720h -period day
+emberlens issues -repo kubernetes/kubernetes -view closed -since 720h -period week -unit days
+emberlens issues -repo kubernetes/kubernetes -view backlog -stale-for 720h -sort age
+emberlens issues -repo kubernetes/kubernetes -view age
+emberlens issues -repo kubernetes/kubernetes -view resolution -since 1440h -unit days -sort duration
+emberlens issues -repo kubernetes/kubernetes -view response -since 720h -comment-pages 2 -unit hours
+emberlens issues -repo kubernetes/kubernetes -view participants -since 720h -comment-pages 2
+emberlens issues -repo kubernetes/kubernetes -view abandoned -stale-for 720h -comment-pages 2
 ```
 
 ### Discovery
 
 ```bash
-emberlens discover -repo chaoss/augur -view untriaged -min-age 168h
-emberlens discover -repo chaoss/augur -view needs-maintainer -min-age 168h -min-comments 3 -min-participants 3
-emberlens discover -repo chaoss/augur -view hotspots -since 336h -min-comments 5 -min-participants 3
+emberlens discover -repo kubernetes/kubernetes -view untriaged -min-age 168h
+emberlens discover -repo kubernetes/kubernetes -view needs-maintainer -min-age 168h -min-comments 3 -min-participants 3
+emberlens discover -repo kubernetes/kubernetes -view hotspots -since 336h -min-comments 5 -min-participants 3
 ```
 
 ## Issue Analytics Notes
@@ -238,8 +238,8 @@ Example report:
 ```yaml
 version: v2
 name: test-run-0
-command: "emberlens issues -repo chaoss/augur -view=new -since=720h -period=week"
-repo: chaoss/augur
+command: "emberlens issues -repo kubernetes/kubernetes -view=new -since=720h -period=week"
+repo: kubernetes/kubernetes
 status: success
 total: 5
 created_at: "2026-03-16T12:00:00Z"
@@ -304,9 +304,9 @@ The runner handles:
 - run reports
 - summary footer
 
-## Current Gaps Compared To Augur
+## Current Gaps
 
-Emberlens now covers people and issue analytics, but it still does not include major Augur domains:
+Emberlens now covers people and issue analytics, but it still does not include these domains:
 
 - pull request and review analytics
 - releases and cadence
@@ -315,4 +315,4 @@ Emberlens now covers people and issue analytics, but it still does not include m
 - dependency, license, and SBOM analysis
 - historical storage, repo groups, and dashboard-style APIs
 
-The detailed comparison is in [docs/augur-gap-report.md](/Users/asish/coding/projects/emberlens/docs/augur-gap-report.md).
+The detailed comparison is in [docs/gap-report.md](docs/gap-report.md).

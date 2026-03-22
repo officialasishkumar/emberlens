@@ -1,30 +1,23 @@
-# Augur vs Emberlens Gap Report
+# Emberlens Gap Report
 
 Date: 2026-03-16
 
 ## Bottom line
 
-Augur is a repository analytics platform. Emberlens is a terminal-first analytics CLI.
+Emberlens is a terminal-first analytics CLI.
 
-That distinction matters:
-
-- Augur collects data continuously
-- Augur stores normalized history in its own database
-- Augur exposes most analytics through API routes and dashboards
-- Augur's CLI mostly operates the platform itself
-
-Emberlens is intentionally narrower:
+It is intentionally narrower than full analytics platforms:
 
 - live GitHub and GitLab API reads
 - compact terminal output
 - small, useful summary blocks
 - flat run snapshots in YAML
 
-If the goal is to copy the useful part of Augur, Emberlens should copy Augur's metric surface, not Augur's operational CLI.
+If the goal is to expand analytics coverage, Emberlens should copy the metric surface of established platforms, not their operational CLI.
 
-## What Augur actually provides
+## What full analytics platforms provide
 
-From the current Augur source and README, Augur combines:
+A typical repository analytics platform combines:
 
 - collectors and worker processes
 - PostgreSQL-backed historical storage
@@ -43,10 +36,10 @@ Its CLI is mainly for:
 - worker and cache control
 - API key and user administration
 
-So the honest answer to "what analytics can Augur do from the CLI?" is:
+So the honest answer to "what analytics can a platform CLI do directly?" is:
 
 - very little directly
-- most of the analytics live behind Augur APIs, stored history, and dashboards
+- most of the analytics live behind platform APIs, stored history, and dashboards
 
 ## What Emberlens provides now
 
@@ -178,7 +171,7 @@ That is better than grouping report output by subcommand because the report is a
 
 ## What the new issue analytics cover
 
-The newly added issue domain closes a large part of the original Augur gap.
+The newly added issue domain closes a large part of the original analytics gap.
 
 Emberlens can now answer:
 
@@ -202,9 +195,9 @@ Important implementation notes:
 - GitLab maintainer inference uses project member access levels
 - abandoned issues are defined by inactivity since last update
 
-This is a strong CLI-friendly subset of Augur's issue surface.
+This is a strong CLI-friendly subset of the issue analytics surface.
 
-## Where Augur is still ahead
+## Where Emberlens still has gaps
 
 The remaining gap is no longer "issue analytics". It is the broader analytics surface that depends on richer platform data, stored history, or local repo analysis.
 
@@ -245,7 +238,7 @@ Still missing:
 - aggregate repo summary
 - clone and traffic style metrics
 
-This is important because Augur gives a broader repo-health picture than Emberlens does today.
+This is important because broader analytics platforms give a wider repo-health picture than Emberlens does today.
 
 ### Commit and code analytics beyond people ranking
 
@@ -275,7 +268,7 @@ Still missing:
 
 These do not fit the current API-only architecture cleanly.
 
-### Platform-level features Augur has and Emberlens does not
+### Platform-level features Emberlens does not yet have
 
 Still missing:
 
@@ -290,9 +283,9 @@ Still missing:
 
 These are platform features, not immediate CLI priorities.
 
-## What Emberlens should not copy from Augur
+## What Emberlens should not copy from full platforms
 
-Emberlens should not try to recreate Augur's operational CLI groups unless the product direction changes completely.
+Emberlens should not try to recreate operational CLI groups of platform analytics tools unless the product direction changes completely.
 
 Low-priority areas to avoid for now:
 
@@ -308,7 +301,7 @@ Those are infrastructure concerns, not user-facing terminal analytics.
 
 Even with issue analytics added, there are still internal gaps that matter.
 
-### 1. The platform client is still narrower than Augur's metric surface
+### 1. The platform client is still narrower than the full analytics metric surface
 
 Current client methods cover:
 
@@ -350,7 +343,7 @@ Without stored snapshots or cached history, Emberlens cannot reliably provide:
 - collection completeness
 - repo-group rollups
 
-This is one of the biggest structural differences between Emberlens and Augur.
+This is one of the biggest structural differences between Emberlens and full analytics platforms.
 
 ### 4. There is still no local analysis layer
 
@@ -455,9 +448,9 @@ High-value flags that fit this model well:
 
 Emberlens is no longer just a people analytics prototype.
 
-With the new issue analytics, it now covers one of the most useful Augur-derived domains in a way that actually fits terminal workflows.
+With the new issue analytics, it now covers one of the most useful analytics domains in a way that actually fits terminal workflows.
 
-The main missing parts versus Augur are now:
+The main missing parts are now:
 
 - pull request and review analytics
 - releases
@@ -465,19 +458,9 @@ The main missing parts versus Augur are now:
 - code and dependency analysis
 - historical storage and multi-repo platform features
 
-That is the right gap to have. It means Emberlens can keep moving forward as a strong CLI instead of becoming a partial clone of Augur's backend platform.
+That is the right gap to have. It means Emberlens can keep moving forward as a strong CLI instead of becoming a partial clone of a backend analytics platform.
 
 ## Sources
-
-Primary Augur sources used:
-
-- [Augur README](https://github.com/chaoss/augur/blob/109511bf6f9699ad859b9a6f446aaf83c2754064/README.md)
-- [Augur CLI multiplexer](https://github.com/chaoss/augur/blob/109511bf6f9699ad859b9a6f446aaf83c2754064/augur/application/cli/_multicommand.py)
-- [Augur backend CLI](https://github.com/chaoss/augur/blob/109511bf6f9699ad859b9a6f446aaf83c2754064/augur/application/cli/backend.py)
-- [Augur API CLI](https://github.com/chaoss/augur/blob/109511bf6f9699ad859b9a6f446aaf83c2754064/augur/application/cli/api.py)
-- [Augur DB CLI](https://github.com/chaoss/augur/blob/109511bf6f9699ad859b9a6f446aaf83c2754064/augur/application/cli/db.py)
-- [Augur config CLI](https://github.com/chaoss/augur/blob/109511bf6f9699ad859b9a6f446aaf83c2754064/augur/application/cli/config.py)
-- [Augur metrics directory](https://github.com/chaoss/augur/tree/109511bf6f9699ad859b9a6f446aaf83c2754064/augur/api/metrics)
 
 Local Emberlens sources used:
 
