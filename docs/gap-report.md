@@ -464,10 +464,10 @@ That is the right gap to have. It means Emberlens can keep moving forward as a s
 
 Local Emberlens sources used:
 
-- [README.md](/Users/asish/coding/projects/emberlens/README.md)
-- [internal/app/app.go](/Users/asish/coding/projects/emberlens/internal/app/app.go)
-- [internal/app/commands.go](/Users/asish/coding/projects/emberlens/internal/app/commands.go)
-- [internal/app/issues.go](/Users/asish/coding/projects/emberlens/internal/app/issues.go)
-- [internal/analysis/issues.go](/Users/asish/coding/projects/emberlens/internal/analysis/issues.go)
-- [internal/platform/platform.go](/Users/asish/coding/projects/emberlens/internal/platform/platform.go)
-- [internal/report/report.go](/Users/asish/coding/projects/emberlens/internal/report/report.go)
+- [README.md](../README.md)
+- [internal/app/app.go](../internal/app/app.go)
+- [internal/app/commands.go](../internal/app/commands.go)
+- [internal/app/issues.go](../internal/app/issues.go)
+- [internal/analysis/issues.go](../internal/analysis/issues.go)
+- [internal/platform/platform.go](../internal/platform/platform.go)
+- [internal/report/report.go](../internal/report/report.go)
